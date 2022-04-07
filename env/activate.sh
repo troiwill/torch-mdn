@@ -39,7 +39,7 @@ fi
 if [[ $EXISTS == 0 ]]; then
     printf "Cannot activate $ENV_NAME because it does not exist.\n"
 else
-    export VTORCH_MDN="${REPO_PATH}"
+    export VTORCH_MDN="${REPO_PATH}/src"
     export PYTHONPATH=$VTORCH_MDN:$PYTHONPATH
     conda activate $ENV_NAME
 fi
