@@ -31,8 +31,8 @@ class GMLoss(Module):
         self.__tgt_size = (1, self.__ndim)
         self.__means_size = (self.__nmodes, self.__ndim)
 
-        self.__u_diag_indices = torch.tensor(diag_indices_tri(ndim, True),
-            dtype = torch.int64)
+        self.__u_diag_indices = torch.tensor(diag_indices_tri(ndim = ndim,
+            is_lower = False), dtype = torch.int64)
 
         if self.__mat_is_covar is True:
             raise NotImplementedError(
@@ -88,13 +88,15 @@ class GMLoss(Module):
         where sigma is the predicted covariance/precision matrices from the 
         Mixture Density Network and x is the residual.
         """
-        # TODO: Sanity check.
-        # Create U matrix of dim -> [batch, ndim, ndim, nmodes]
+        # Do shape sanity check: residual.size[1:] == (nmodes, ndim, 1)
+        assert tuple(residual.size()[1:]) == (self.__nmodes, self.__ndim, 1)
+
+        # Create U matrix of dim -> [batch, nmodes, ndim, ndim]
         u_mat = to_triangular_matrix(ndim = self.__ndim, params = cpmat_params)
 
-        # Compatible sanity check.
+        # Compatible sanity check before computing norm.
         assert u_mat.size()[:2] == residual.size()[:2]
-        assert u_mat.size()[-1] == residual.size()[-1]
+        assert u_mat.size()[-1] == self.__ndim
 
         # Compute ||U(x - mu)||^2_2
         ur = torch.matmul(u_mat, residual)

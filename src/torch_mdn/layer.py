@@ -1,10 +1,9 @@
 from typing import Tuple
-from torch_mdn.utils import epsilon
+from torch_mdn.utils import diag_indices_tri, epsilon, \
+    num_tri_matrix_params_per_mode
 import torch
 from torch import Tensor
 from torch.nn import functional as F
-
-from utils import diag_indices_tri, num_tri_matrix_params_per_mode
 
 
 # Types of valid covariance matrices.
@@ -29,7 +28,7 @@ class GaussianMixtureLayer:
         self.is_training: bool = True
         self.set_train_mode()
 
-        self.pmix_dist_shape = (self.nmodes, self.ndim)
+        self.pmix_dist_shape = (self.nmodes, 1)
         self.pmu_dist_shape = (self.nmodes, self.ndim)
 
         if self.cpm_type_int == GM_COVAR_FULL_UU:
