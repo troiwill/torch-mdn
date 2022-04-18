@@ -50,7 +50,7 @@ def num_tri_matrix_params_per_mode(ndim: int, is_unit_tri: bool) -> int:
     return num_params
 #end def
 
-def to_triangular_matrix(ndim: int, params: Tensor) -> Tensor:
+def to_triangular_matrix(ndim: int, params: Tensor, is_lower: bool) -> Tensor:
     """
     Builds a triangular matrix using a set of free parameters with ndim 
     dimensions.
@@ -60,7 +60,8 @@ def to_triangular_matrix(ndim: int, params: Tensor) -> Tensor:
     tri_mat = torch.zeros((batch, nmodes, ndim, ndim),
         dtype = params.dtype, device = params.device)
 
-    i, j = torch.tril_indices(ndim, ndim)
+    i, j = torch.tril_indices(ndim, ndim) if is_lower \
+        else torch.triu_indices(ndim, ndim)
     tri_mat[:, :, i, j] = params
     return tri_mat
 #end def

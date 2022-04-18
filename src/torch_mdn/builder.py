@@ -1,6 +1,6 @@
 import torch
-from torch_mdn.layer import GM_COVAR_FULL_UU
-from torch_mdn.utils import num_tri_matrix_params_per_mode
+import torch_mdn.layer
+import torch_mdn.utils
 from typing import Dict
 
 
@@ -42,7 +42,7 @@ class GMParamBuilder:
         self.gml_params = dict([
             ("ndim", self.ndim),
             ("nmodes", self.nmodes),
-            ("cpm_type", self.covar_type)
+            ("cpm_decomp", self.covar_type)
         ])
 
         self.mix_layer_params = dict([
@@ -62,8 +62,9 @@ class GMParamBuilder:
         ])
 
         num_cpm_params: int
-        if self.covar_type == GM_COVAR_FULL_UU:
-            num_cpm_params = num_tri_matrix_params_per_mode(self.ndim, False)
+        if self.covar_type == torch_mdn.layer.GM_COVAR_FULL_UU:
+            num_cpm_params = torch_mdn.utils.num_tri_matrix_params_per_mode(
+                self.ndim, False)
         else:
             raise Exception("CPM type is not implemented.")
 
