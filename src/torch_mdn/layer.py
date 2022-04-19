@@ -52,7 +52,8 @@ class GaussianMixtureLayer(torch.nn.Module):
             out_features=np.prod(self.cpm_dist_shape), dtype=dtype)
     #end def
 
-    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+    def forward(self, x: Tensor, compute_mat: bool = False) \
+        -> Tuple[Tensor, Tensor, Tensor]:
         """
         Computes the free parameters for the mixture coefficients, mu, and
         covariance/precision matrices (CPM). Then reshapes the linear output of
@@ -66,9 +67,9 @@ class GaussianMixtureLayer(torch.nn.Module):
         mixcoeff, mu, cpm = self.reshape_linear_output(mixcoeff, mu, cpm)
         mixcoeff, mu, cpm = self.apply_activation(mixcoeff, mu, cpm)
 
-        if not self.training:
+        if compute_mat:
             cpm = torch_mdn.utils.to_triangular_matrix(self.ndim, cpm, False)
-            cpm = torch.einsum('abcd, abde -> abce', cpm, cpm)
+            cpm = torch_mdn.utils.torch_matmul_4d(cpm.transpose(-2,-1), cpm)
 
         return mixcoeff, mu, cpm
     #end def
@@ -114,6 +115,7 @@ class GaussianMixtureLayer(torch.nn.Module):
 
     def extra_repr(self) -> str:
         return f"nmodes={self.nmodes}, ndims={self.ndim}, " \
-            + "matrix_type=INFO [HARDCODED], matrix_decomposition=CHOLESKY [HARDCODED]"
+            + "matrix_type=INFO [HARDCODED], " \
+            + "matrix_decomposition=CHOLESKY [HARDCODED]"
     #end def
 #end class

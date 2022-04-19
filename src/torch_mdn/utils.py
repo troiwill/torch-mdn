@@ -65,3 +65,11 @@ def to_triangular_matrix(ndim: int, params: Tensor, is_lower: bool) -> Tensor:
     tri_mat[:, :, i, j] = params
     return tri_mat
 #end def
+
+def torch_matmul_4d(a: Tensor, b: Tensor) -> Tensor:
+    """
+    Performs matrix-matrix multiplication for two 4D matrices, where the last
+    two dimensions of each matrix is (N,N).
+    """
+    return torch.einsum('abcd, abde -> abce', a, b)
+#end def
