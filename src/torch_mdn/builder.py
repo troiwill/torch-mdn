@@ -25,13 +25,10 @@ class GMParamBuilder:
         self.nmodes = nmodes
         self.ndim = ndim
         self.covar_type = covar_type
-        self.device = device
         self.dtype = torch.float32
 
-        self.gml_params: Dict
-        self.mix_layer_params: Dict
-        self.mean_layer_params: Dict
-        self.cpm_layer_params: Dict
+        self.layer_params: Dict
+        self.loss_params: Dict
     #end def
 
     def build(self) -> None:
@@ -39,41 +36,19 @@ class GMParamBuilder:
         Creates a set of parameters used to build the linear, GMM, and loss
         layers.
         """
-        self.gml_params = dict([
+        self.layer_params = dict([
+            ("in_features", self.in_features),
             ("ndim", self.ndim),
             ("nmodes", self.nmodes),
-            ("cpm_decomp", self.covar_type)
-        ])
-
-        self.mix_layer_params = dict([
-            ("in_features", self.in_features),
-            ("out_features", self.nmodes),
-            ("bias", True),
-            ("device", self.device),
+            ("cpm_decomp", self.covar_type),
             ("dtype", self.dtype)
         ])
 
-        self.mean_layer_params = dict([
-            ("in_features", self.in_features),
-            ("out_features", self.ndim * self.nmodes),
-            ("bias", True),
-            ("device", self.device),
-            ("dtype", self.dtype)
-        ])
-
-        num_cpm_params: int
-        if self.covar_type == torch_mdn.layer.GM_COVAR_FULL_UU:
-            num_cpm_params = torch_mdn.utils.num_tri_matrix_params_per_mode(
-                self.ndim, False)
-        else:
-            raise Exception("CPM type is not implemented.")
-
-        self.cpm_layer_params = dict([
-            ("in_features", self.in_features),
-            ("out_features", num_cpm_params * self.nmodes),
-            ("bias", True),
-            ("device", self.device),
-            ("dtype", self.dtype)
+        print("[ WARNING ]: `mat_is_covar` is hardcoded!")
+        self.loss_params = dict([
+            ("ndim", self.ndim),
+            ("nmodes", self.nmodes),
+            ("mat_is_covar", False)
         ])
     #end def
 #end class
