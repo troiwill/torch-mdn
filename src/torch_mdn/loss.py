@@ -106,4 +106,11 @@ class GMLoss(Module):
 
         return ur
     #end def
+
+    def extra_repr(self) -> str:
+        return f"nmodes={self.__nmodes}, ndims={self.__ndim}, " \
+            + f"matrix_is_covar={self.__mat_is_covar}, " \
+            + f"target_size={self.__tgt_size}, " \
+            + f"means_size={self.__means_size}"
+    #end def
 #end class
