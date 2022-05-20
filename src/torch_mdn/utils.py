@@ -18,16 +18,18 @@ def diag_indices_tri(ndim: int, is_lower: bool) -> Tuple[List[int]]:
 
     # Compute the diagonal indices only if ndim is at least 2.
     if ndim >= 2:
-        start_index, end_index = 0, int(((ndim * ndim) + ndim) * 0.5) - 1
-        index_gap = 2 if is_lower else -1 * ndim
-        diag_indices[0] = start_index
-        diag_indices[-1] = end_index
+        start_idx, expected_end_idx = 0, int(((ndim * ndim) + ndim) * 0.5) - 1
+        index_gaps = list(range(2, ndim + 1, 1)) \
+            if is_lower else list(range(ndim, 1, -1))
 
-        if ndim > 2:
-            for i in range(1, ndim):
-                diag_indices[i] = diag_indices[i - 1] + index_gap
-                index_gap = index_gap + 1
-        #end if
+        diag_indices[0] = start_idx
+        for i, ig in enumerate(index_gaps):
+            diag_indices[i+1] = diag_indices[i] + ig
+
+        # Sanity check.
+        if diag_indices[-1] != expected_end_idx:
+            raise Exception(f'Expected last index to be {expected_end_idx} ' \
+                + f'but received {diag_indices[-1]}.')
     #end if
 
     return tuple(diag_indices)
