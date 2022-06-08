@@ -26,12 +26,15 @@ source activate.sh
 ```
 Please note that sourcing the [activate.sh](env/activate.sh) script will also activate the environment and add `torch_mdn` to the `PYTHONPATH` environment variable.
 
+**Note:** After you set up the environment using Method #1 or #2, install the build tool via the following command: `pip install build`.
+
 ## Installing the torch_mdn Python package
 
 Installing this Python package requires a two-step process. First, you must build the package. Assuming you set up the environment as mentioned above, run the following commands:
 ```
 conda activate torch_mdn
 cd ${HOME}/repos/torch-mdn
+git checkout alpha
 python -m build
 ```
 
