@@ -95,6 +95,13 @@ class GaussianMixtureLayer(torch.nn.Module):
         return mixcoeff, mu, cpm
     #end def
 
+    def predict(self, x: bool) -> Tuple[Tensor, Tensor, Tensor]:
+        """
+        Infers a probability distribution p(y | x) given the input `x`.
+        """
+        return self.forward(x=x, compute_mat=True)
+    #end def
+
     def reshape_linear_output(self, mixcoeff: Tensor, mu: Tensor,
         cpm: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
         """
