@@ -82,7 +82,8 @@ def num_tri_matrix_params_per_mode(ndim: int, is_unit_tri: bool) -> int:
 
 def to_triangular_matrix(ndim: int, params: Tensor, is_lower: bool) -> Tensor:
     """
-    Builds a triangular matrix using a set of free parameters.
+    Builds a triangular matrix using a set of free parameters. WARNING: this 
+    function only builds non-unit triangular matrices.
 
     Parameters
     ----------
@@ -93,8 +94,8 @@ def to_triangular_matrix(ndim: int, params: Tensor, is_lower: bool) -> Tensor:
         network). The free parameters will be reorganized to build a 
         non-unit triangular matrix.
     is_lower : bool
-        Specifies if the resulting triangular matrix is a lower or upper 
-        triangular matrix.
+        Specifies if the resulting triangular matrix is a lower (True) or 
+        upper (False) triangular matrix.
 
     Results
     -------
