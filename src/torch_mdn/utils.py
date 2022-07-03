@@ -1,11 +1,26 @@
 import torch
 from torch import Tensor
-from typing import Tuple, List
+from typing import Tuple
 
 
-def diag_indices_tri(ndim: int, is_lower: bool) -> Tuple[List[int]]:
+def diag_indices_tri(ndim: int, is_lower: bool) -> Tuple[int]:
     """
-    Returns the diagonal index values for a triangular matrix.
+    Computers the diagonal index values for a triangular matrix.
+
+    Parameters
+    ----------
+    ndim : int
+        The number of dimension of the triangular matrix. E.g., 3 for a 
+        3 x 3 matrix.
+    is_lower : bool
+        Specifies if the matrix is a lower triangular (True) or upper 
+        triangular (False).
+
+    Returns
+    -------
+    res : Tuple[int]
+        A tuple of integers representing the diagonal indices for a lower 
+        or upper triangular matrix.
     """
     ndim = int(ndim)
     if ndim <= 0:
@@ -43,8 +58,21 @@ def epsilon() -> float:
 
 def num_tri_matrix_params_per_mode(ndim: int, is_unit_tri: bool) -> int:
     """
-    Compute the number of free parameters for each mode depending on the 
-    number of dimensions (ndim) and if the matrix is triangular or not.
+    Compute the number of free parameters for one triangular matrix.
+
+    Parameters
+    ----------
+    ndim : int
+        The number of dimensions in the data.
+    is_unit_tri : bool
+        Specifies if the resulting triangular matrix is unit (has a diagonal 
+        of ones) or not.
+
+    Returns
+    -------
+    res : int
+        The number of free parameters for a (unit or non-unit) triangular 
+        matrix with ndim dimensions.
     """
     num_params = int(ndim * (ndim + 1) * 0.5)
     if is_unit_tri:
@@ -54,16 +82,35 @@ def num_tri_matrix_params_per_mode(ndim: int, is_unit_tri: bool) -> int:
 
 def to_triangular_matrix(ndim: int, params: Tensor, is_lower: bool) -> Tensor:
     """
-    Builds a triangular matrix using a set of free parameters with ndim 
-    dimensions.
+    Builds a triangular matrix using a set of free parameters.
+
+    Parameters
+    ----------
+    ndim : int
+        The number of dimensions in the data.
+    params : torch.Tensor
+        The free parameters from the output of a function (e.g., a neural 
+        network). The free parameters will be reorganized to build a 
+        non-unit triangular matrix.
+    is_lower : bool
+        Specifies if the resulting triangular matrix is a lower or upper 
+        triangular matrix.
+
+    Results
+    -------
+    res : torch.Tensor
+        Returns a triangular matrix with dimensions (L, M, N, N), where N is 
+        ndim.
     """
     # Allocate the triangular matrix.
     batch, nmodes, _ = list(params.size())
     tri_mat = torch.zeros((batch, nmodes, ndim, ndim),
         dtype = params.dtype, device = params.device)
 
-    i, j = torch.tril_indices(ndim, ndim) if is_lower \
-        else torch.triu_indices(ndim, ndim)
+    if is_lower == True:
+        i, j = torch.tril_indices(ndim, ndim)
+    else:
+        i, j = torch.triu_indices(ndim, ndim)
     tri_mat[:, :, i, j] = params
     return tri_mat
 #end def
@@ -72,6 +119,19 @@ def torch_matmul_4d(a: Tensor, b: Tensor) -> Tensor:
     """
     Performs matrix-matrix multiplication for two 4D matrices, where the last
     two dimensions of each matrix is (N,N).
+
+    Parameters
+    ----------
+    a : torch.Tensor
+        The first 4-D matrix.
+    b : torch.Tensor
+        The second 4-D matrix.
+
+    Returns
+    -------
+    res : torch.Tensor
+        The matrix-matrix multiplication of a and b, where the third and 
+        fourth dimensions are multiplied.
     """
     return torch.einsum('abcd, abde -> abce', a, b)
 #end def
