@@ -34,7 +34,6 @@ Installing this Python package requires a two-step process. First, you must buil
 ```
 conda activate torch_mdn
 cd ${HOME}/repos/torch-mdn
-git checkout alpha
 python -m build
 ```
 
