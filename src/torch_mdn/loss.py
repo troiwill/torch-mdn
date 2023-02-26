@@ -25,7 +25,7 @@ class _GaussianNLLLoss(nn.Module):
 
     def extra_repr(self) -> str:
         return f"ndim={self.ndim}, nmodes={self.nmodes}, " \
-            + f"target_size={self.tgt_size}"
+            + f"target_size=[{self.ndim}, 1]"
 #end def
 
 
@@ -204,7 +204,7 @@ class GaussianCovarianceNLLoss(_GaussianDecompositionNLLLoss):
             The mean negative log-likelihood of the batch.
         """
         # Reshape the target/residual.
-        target = target.view((-1,) + self.tgt_size)
+        target = target.view((-1, 1, self.ndim, 1))
 
         # Compute the natural log of the determinant: ln(det(Sigma)^-1/2).
         ln_det_sigma = self.decomp_loss.compute_ln_det_sigma(
