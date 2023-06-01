@@ -4,7 +4,7 @@ import math
 import torch
 from torch import Tensor
 import torch.nn as nn
-import torch_mdn.layer as layer
+from torch_mdn.layer import MatrixDecompositionType
 import torch_mdn.utils as utils
 
 
@@ -57,7 +57,7 @@ class _MatrixDecompositionNLLLoss(_GaussianNLLLoss):
         nmodes : int
             The number of modes. Only useful for mixture models.
         """
-        super().__init__(ndim, nmodes)
+        super().__init__(ndim=ndim, nmodes=nmodes)
 
     @abstractmethod
     def compute_ln_det_sigma(self, cpmat_params: Tensor) -> Tensor:
@@ -124,7 +124,7 @@ class _CholeskyDecompositionNLLLoss(_MatrixDecompositionNLLLoss):
         nmodes : int
             The number of modes. Only useful for mixture models.
         """
-        super().__init__(ndim, nmodes)
+        super().__init__(ndim=ndim, nmodes=nmodes)
         self.__u_diag_indices = torch.tensor(
             utils.diag_indices_tri(ndim=self.ndim, is_lower=False), dtype=torch.int64
         )
@@ -213,24 +213,28 @@ class _CholeskyDecompositionNLLLoss(_MatrixDecompositionNLLLoss):
 class _GaussianDecompositionNLLLoss(_GaussianNLLLoss):
     """A base class for Gaussian NLL classes that use matrix decomposition methods."""
 
-    def __init__(self, ndim: int, nmodes: int, decomp_loss_type: int) -> None:
+    def __init__(
+        self, matrix_decomp_type: MatrixDecompositionType, ndim: int, nmodes: int
+    ) -> None:
         """
+        matrix_decomp_type : MatrixDecompositionType
+            The matrix decomposition type.
+
         ndim : int
             The number of dimensions of the Gaussian distribution.
 
         nmodes : int
             The number of modes. Only useful for mixture models.
-
-        decomp_loss_type : int
-            The matrix decomposition type.
         """
-        super().__init__(ndim, nmodes)
-        if decomp_loss_type == layer.GMD_FULL_UU:
+        super().__init__(ndim=ndim, nmodes=nmodes)
+        if matrix_decomp_type == MatrixDecompositionType.full_UU:
             self.decomp_loss = _CholeskyDecompositionNLLLoss(
                 ndim=self.ndim, nmodes=self.nmodes
             )
         else:
-            raise Exception("Unknown or unhandled decomposition type.")
+            raise NotImplementedError(
+                f"Matrix decomposition {matrix_decomp_type} is not implemented."
+            )
 
     def extra_repr(self) -> str:
         """
@@ -242,7 +246,8 @@ class _GaussianDecompositionNLLLoss(_GaussianNLLLoss):
             Detailed information about the Gaussian matrix decomposition NLL loss function.
         """
         return (
-            super().extra_repr() + f"matrix_decomp={self.decomp_loss.decomposed_name()}"
+            super().extra_repr()
+            + f"matrix_decomposition={self.decomp_loss.decomposed_name()}"
         )
 
 
@@ -251,21 +256,22 @@ class GaussianCovarianceNLLoss(_GaussianDecompositionNLLLoss):
     The negative log-likelihood loss function for `torch_mdn.layer.GaussianCovarianceLayer`.
     """
 
-    def __init__(self, ndim: int, nmodes: int, decomp_loss_type: int) -> None:
+    def __init__(
+        self, matrix_decomp_type: MatrixDecompositionType, ndim: int, nmodes: int
+    ) -> None:
         """
-        Creates an instance of the negative log-likelihood loss function for a Gaussian
-        covariance layer.
+        matrix_decomp_type : MatrixDecompositionType
+            The matrix decomposition type.
 
         ndim : int
             The number of dimensions of the Gaussian distribution.
 
         nmodes : int
             The number of modes. Only useful for mixture models.
-
-        decomp_loss_type : int
-            The matrix decomposition type.
         """
-        super().__init__(ndim, nmodes, decomp_loss_type)
+        super().__init__(
+            matrix_decomp_type=matrix_decomp_type, ndim=ndim, nmodes=nmodes
+        )
 
     def forward(self, cpmat_params: Tensor, target: Tensor) -> Tensor:
         """
@@ -305,20 +311,24 @@ class GaussianNLLoss(_GaussianDecompositionNLLLoss):
     The negative log-likelihood loss function for `torch_mdn.layer.GaussianLayer`.
     """
 
-    def __init__(self, ndim: int, nmodes: int, decomp_loss_type: int) -> GaussianNLLoss:
+    def __init__(
+        self, matrix_decomp_type: MatrixDecompositionType, ndim: int, nmodes: int
+    ) -> GaussianNLLoss:
         """
         Creates an instance of the negative log-likelihood loss function for a Gaussian layer.
+
+        matrix_decomp_type : MatrixDecompositionType
+            The matrix decomposition type.
 
         ndim : int
             The number of dimensions of the Gaussian distribution.
 
         nmodes : int
             The number of modes. Only useful for mixture models.
-
-        decomp_loss_type : int
-            The matrix decomposition type.
         """
-        super().__init__(ndim, nmodes, decomp_loss_type)
+        super().__init__(
+            matrix_decomp_type=matrix_decomp_type, ndim=ndim, nmodes=nmodes
+        )
 
     def forward(
         self, mu_params: Tensor, cpmat_params: Tensor, target: Tensor
@@ -365,21 +375,25 @@ class GaussianMixtureNLLoss(_GaussianDecompositionNLLLoss):
     The negative log-likelihood loss function for `torch_mdn.layer.GaussianMixtureLayer`.
     """
 
-    def __init__(self, ndim: int, nmodes: int, decomp_loss_type: int) -> None:
+    def __init__(
+        self, matrix_decomp_type: MatrixDecompositionType, ndim: int, nmodes: int
+    ) -> GaussianMixtureNLLoss:
         """
         Creates an instance of the negative log-likelihood loss function for a Gaussian mixture
         layer.
+
+        matrix_decomp_type : MatrixDecompositionType
+            The matrix decomposition type.
 
         ndim : int
             The number of dimensions of the Gaussian distribution.
 
         nmodes : int
             The number of modes. Only useful for mixture models.
-
-        decomp_loss_type : int
-            The matrix decomposition type.
         """
-        super().__init__(ndim, nmodes, decomp_loss_type)
+        super().__init__(
+            matrix_decomp_type=matrix_decomp_type, ndim=ndim, nmodes=nmodes
+        )
 
     def forward(
         self,

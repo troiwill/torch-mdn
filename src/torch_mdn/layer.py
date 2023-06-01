@@ -1,6 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections import OrderedDict
+from enum import Enum
 import math
 import torch
 import torch_mdn.utils as utils
@@ -10,32 +11,30 @@ import torch.nn.functional as F
 from typing import Iterable, OrderedDict, Tuple, Union
 
 
-# Types of valid covariance matrices.
-GMD_DIAG: int = 0
-GMD_FULL_LDL: int = 1
-GMD_FULL_UU: int = 2
-GM_VALID_COVAR_TYPES = dict(
-    [("DIAG", GMD_DIAG), ("LDL", GMD_FULL_LDL), ("UU", GMD_FULL_UU)]
-)
+class MatrixDecompositionType(Enum):
+    """Enum for specifying the types of decomposed Gaussian covariance matrices."""
 
-# Types of valid output covariance/precision matrices.
-GTL_MAT_OUT_DECOMPED: int = 0
-GTL_MAT_OUT_PRECISION: int = 1
-GTL_MAT_OUT_COVARIANCE: int = 2
-GTL_VALID_MAT_OUT_TYPES = dict(
-    [
-        ("DECOM", GTL_MAT_OUT_DECOMPED),
-        ("PREC", GTL_MAT_OUT_PRECISION),
-        ("COVAR", GTL_MAT_OUT_COVARIANCE),
-    ]
-)
-GTL_VALID_MAT_OUT_NAMES = dict(
-    [
-        (GTL_MAT_OUT_DECOMPED, "Decomposed Matrix"),
-        (GTL_MAT_OUT_PRECISION, "Precision Matrix"),
-        (GTL_MAT_OUT_COVARIANCE, "Covariance Matrix"),
-    ]
-)
+    diagonal = "Diagonal Decomposition"
+    """Decomposition of a diagonal covariance matrix."""
+
+    full_LDL = "Full Matrix LDL Decomposition"
+    """LDL decomposition of a full covariance matrix."""
+
+    full_UU = "Full Matrix UU Decomposition"
+    """UU decomposition of a full covariance matrix."""
+
+
+class MatrixPredictionType(Enum):
+    """Enum for specifying how to output a covariance matrix during prediction/testing."""
+
+    decomposed = "Decomposed"
+    """Output the raw/decomposed matrix (the output one would get from training.)"""
+
+    precision = "Precision"
+    """Output the precision/infomation matrix."""
+
+    covariance = "Covariance"
+    """Output the covariance matrix."""
 
 
 class _GaussianLayerComponent(nn.Module, ABC):
@@ -173,7 +172,7 @@ class _GaussianMeanLayer(_GaussianLayerComponent):
         nmodes : int
             The number of modes. Only useful for mixture models.
         """
-        super().__init__(ndim, nmodes)
+        super().__init__(ndim=ndim, nmodes=nmodes)
         self.mu_dist_shape = (self.nmodes, self.ndim)
 
     def apply_activation(self, x: Tensor) -> Tensor:
@@ -246,7 +245,7 @@ class _GaussianMixCoeffLayer(_GaussianLayerComponent):
         nmodes : int
             The number of modes. Only useful for mixture models.
         """
-        super().__init__(ndim, nmodes)
+        super().__init__(ndim=ndim, nmodes=nmodes)
         self.mix_dist_shape = (self.nmodes, 1)
 
     def apply_activation(self, x: Tensor) -> Tensor:
@@ -399,16 +398,20 @@ class GaussianCovarianceLayer(_GaussianLayerComponent):
     """A class that implements the Gaussian covariance layer."""
 
     def __init__(
-        self, cpm_decomp: int, pred_matrix_type: int, ndim: int, nmodes: int = 1
+        self,
+        matrix_decomp_type: MatrixDecompositionType,
+        predict_matrix_type: MatrixPredictionType,
+        ndim: int,
+        nmodes: int = 1,
     ) -> GaussianCovarianceLayer:
         """
         Parameters
         ----------
-        cpm_decomp : int
+        matrix_decomp_type : MatrixDecompositionType (enum)
             The covariance/precision matrix decomposition type.
 
-        pred_matrix_type : int
-            The prediction matrix type (precision matrix or covariance matrix).
+        predict_matrix_type : MatrixPredictionType (enum)
+            The prediction matrix type.
 
         ndim : int
             The number of dimensions for the Gaussian.
@@ -416,30 +419,20 @@ class GaussianCovarianceLayer(_GaussianLayerComponent):
         nmodes : int
             The number of modes. Only useful for mixture models.
         """
-        super().__init__(ndim, nmodes)
-        # Determine the covariance/precision matrix type.
-        self.__cpm_decomp_int: int = cpm_decomp
-        if self.__cpm_decomp_int != GMD_FULL_UU:
-            raise Exception(
-                "Invalid covariance/precision matrix type. "
-                + f"Found {self.__cpm_decomp_int}. Valid options are "
-                + f"{GM_VALID_COVAR_TYPES.values()}."
-            )
+        super().__init__(ndim=ndim, nmodes=nmodes)
 
-        num_mat_params: int
-        if self.__cpm_decomp_int == GMD_FULL_UU:
+        # Determine the matrix decomposition type.
+        self.__matrix_decomp_type = matrix_decomp_type
+        if self.__matrix_decomp_type == MatrixDecompositionType.full_UU:
             num_mat_params = utils.num_tri_matrix_params_per_mode(self.ndim, False)
             self.__cpm_dist_shape = (self.nmodes, num_mat_params)
         else:
-            raise Exception("CPM type not implemented.")
-
-        self.__pred_matrix_type_int: int = pred_matrix_type
-        if self.__pred_matrix_type_int not in GTL_VALID_MAT_OUT_TYPES.values():
-            raise Exception(
-                "Invalid output matrix type. Found "
-                + f"{self.__pred_matrix_type_int}. Valid options are "
-                + f"{GTL_VALID_MAT_OUT_TYPES.values()}"
+            raise NotImplementedError(
+                f"The matrix decomposition type {self.__matrix_decomp_type} is not implemented."
             )
+
+        # Determine the matrix prediction/inference type.
+        self.__predict_matrix_type = predict_matrix_type
 
     def apply_activation(self, x: Tensor) -> Tensor:
         """
@@ -456,13 +449,15 @@ class GaussianCovarianceLayer(_GaussianLayerComponent):
         res : torch.Tensor
             The free parameters after an activation function has been applied.
         """
-        if self.__cpm_decomp_int == GMD_FULL_UU:
+        if self.__matrix_decomp_type == MatrixDecompositionType.full_UU:
             diag_indices = utils.diag_indices_tri(ndim=self.ndim, is_lower=False)
             x[:, :, diag_indices] = (
                 F.elu(x[:, :, diag_indices], alpha=1.0) + 1 + utils.epsilon()
             )
         else:
-            raise Exception(f"CPM type {self.__cpm_decomp_int} not implemented.")
+            raise NotImplementedError(
+                f"Matrix decomposition type {self.__matrix_decomp_type} is not implemented."
+            )
 
         return x
 
@@ -498,19 +493,19 @@ class GaussianCovarianceLayer(_GaussianLayerComponent):
         Returns
         -------
         res : torch.Tensor
-            The prediction of the mixture coeffients given the input tensor.
+            The predicted matrix given the input tensor.
         """
         x = self.forward(x)
 
         # Check the output format of the matrix.
-        if self.__pred_matrix_type_int in [
-            GTL_MAT_OUT_PRECISION,
-            GTL_MAT_OUT_COVARIANCE,
+        if self.__predict_matrix_type in [
+            MatrixPredictionType.covariance,
+            MatrixPredictionType.precision,
         ]:
             x = utils.to_triangular_matrix(self.ndim, x, False)
             x = utils.torch_matmul_4d(x.transpose(-2, -1), x)
 
-            if self.__pred_matrix_type_int == GTL_MAT_OUT_COVARIANCE:
+            if self.__predict_matrix_type == MatrixPredictionType.covariance:
                 x = torch.inverse(x)
 
         return x
@@ -544,9 +539,8 @@ class GaussianCovarianceLayer(_GaussianLayerComponent):
         return (
             f"nmodes={self.nmodes}, ndims={self.ndim}, "
             + "matrix_type=INFO [HARDCODED], "
-            + "matrix_decomposition=CHOLESKY [HARDCODED]"
-            + "predicted_matrix_type="
-            + f"{GTL_VALID_MAT_OUT_NAMES[self.__pred_matrix_type_int]}"
+            + "matrix_decomposition=CHOLESKY [HARDCODED], "
+            + f"predicted_matrix_type={self.__predict_matrix_type.name}"
         )
 
 
@@ -554,16 +548,20 @@ class GaussianLayer(_CompositeLayerBase):
     """A class that implements the Gaussian (mean and covariance) layer."""
 
     def __init__(
-        self, cpm_decomp: int, pred_matrix_type: int, ndim: int, nmodes: int = 1
+        self,
+        matrix_decomp_type: MatrixDecompositionType,
+        predict_matrix_type: MatrixPredictionType,
+        ndim: int,
+        nmodes: int = 1,
     ) -> GaussianLayer:
         """
         Parameters
         ----------
-        cpm_decomp : int
+        matrix_decomp_type : MatrixDecompositionType (enum)
             The covariance/precision matrix decomposition type.
 
-        pred_matrix_type : int
-            The prediction matrix type (precision matrix or covariance matrix).
+        predict_matrix_type : MatrixPredictionType (enum)
+            The prediction matrix type.
 
         ndim : int
             The number of dimensions for the Gaussian.
@@ -574,10 +572,10 @@ class GaussianLayer(_CompositeLayerBase):
         # Create the mu and sigma layers.
         mu_layer = _GaussianMeanLayer(ndim=ndim, nmodes=nmodes)
         sigma_layer = GaussianCovarianceLayer(
+            matrix_decomp_type=matrix_decomp_type,
+            predict_matrix_type=predict_matrix_type,
             ndim=ndim,
             nmodes=nmodes,
-            cpm_decomp=cpm_decomp,
-            pred_matrix_type=pred_matrix_type,
         )
 
         super().__init__(
@@ -600,16 +598,20 @@ class GaussianMixtureLayer(_CompositeLayerBase):
     """A class that implements the Gaussian mixture layer."""
 
     def __init__(
-        self, cpm_decomp: int, pred_matrix_type: int, ndim: int, nmodes: int = 1
+        self,
+        matrix_decomp_type: MatrixDecompositionType,
+        predict_matrix_type: MatrixPredictionType,
+        ndim: int,
+        nmodes: int = 1,
     ) -> GaussianMixtureLayer:
         """
         Parameters
         ----------
-        cpm_decomp : int
+        matrix_decomp_type : MatrixDecompositionType (enum)
             The covariance/precision matrix decomposition type.
 
-        pred_matrix_type : int
-            The prediction matrix type (precision matrix or covariance matrix).
+        predict_matrix_type : MatrixPredictionType (enum)
+            The prediction matrix type.
 
         ndim : int
             The number of dimensions for the Gaussian.
@@ -621,10 +623,10 @@ class GaussianMixtureLayer(_CompositeLayerBase):
         mix_layer = _GaussianMixCoeffLayer(ndim=ndim, nmodes=nmodes)
         mu_layer = _GaussianMeanLayer(ndim=ndim, nmodes=nmodes)
         sigma_layer = GaussianCovarianceLayer(
+            matrix_decomp_type=matrix_decomp_type,
+            predict_matrix_type=predict_matrix_type,
             ndim=ndim,
             nmodes=nmodes,
-            cpm_decomp=cpm_decomp,
-            pred_matrix_type=pred_matrix_type,
         )
 
         super().__init__(
