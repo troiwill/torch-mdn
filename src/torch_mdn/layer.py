@@ -325,7 +325,7 @@ class _CompositeLayerBase(nn.Module):
         if not isinstance(components, OrderedDict):
             raise Exception("components must be an ordered dictionary.")
 
-        for c in components:
+        for _, c in components.items():
             if not isinstance(c, _GaussianLayerComponent):
                 raise Exception(
                     "Invalid type found. Expected "
