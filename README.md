@@ -38,3 +38,22 @@ python -m build
 ```
 
 Once you built the package, use pip to install the wheel file (`*.whl`). For example, `pip install <TORCH_MDN_WHEEL>.whl`. If you do not want to install this package in the current conda environment, deactivate the environment first (using `conda deactivate`) and then install the package in the appropriate environment.
+
+## Testing the Library
+
+We use the `pytest` package to sanity check the components in the library. To install `pytest`, run:
+```
+pip install pytest
+```
+
+To run all the tests, run:
+```
+cd tests
+pytest
+```
+
+To run individual test files, run:
+```
+cd tests
+pytest test_<file name>.py # for example, test_utils.py
+```
