@@ -26,7 +26,7 @@ def diag_indices_tri(ndim: int, is_lower: bool) -> Tuple[int]:
     if ndim <= 0:
         raise ValueError(f"`ndim` must be a positive integer, but got {ndim}.")
     if not isinstance(is_lower, bool):
-        raise Exception("`is_lower` must be a Boolean value.")
+        raise TypeError("`is_lower` must be a Boolean value.")
 
     # Stores the diagonal indices for a triangular matrix.
     diag_indices = list([0] * ndim)
@@ -74,7 +74,8 @@ def num_tri_matrix_params_per_mode(ndim: int, is_unit_tri: bool) -> int:
         The number of dimensions in the data.
 
     is_unit_tri : bool
-        Specifies if the resulting triangular matrix is unit (has a diagonal of ones) or not.
+        Specifies if the resulting triangular matrix is unit (has a diagonal of ones) or not. If
+        the matrix is unit, `is_unit_tri` must be `True`. Otherwise, it is `False`.
 
     Returns
     -------
@@ -87,7 +88,7 @@ def num_tri_matrix_params_per_mode(ndim: int, is_unit_tri: bool) -> int:
     if ndim <= 0:
         raise ValueError(f"`ndim` must be a positive integer, but got {ndim}.")
     if not isinstance(is_unit_tri, bool):
-        raise Exception("`is_unit_tri` must be a Boolean value.")
+        raise TypeError("`is_unit_tri` must be a Boolean value.")
 
     num_params = int(ndim * (ndim + 1) * 0.5)
     if is_unit_tri:
