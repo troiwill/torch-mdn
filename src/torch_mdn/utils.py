@@ -98,8 +98,9 @@ def num_tri_matrix_params_per_mode(ndim: int, is_unit_tri: bool) -> int:
 
 def to_triangular_matrix(ndim: int, params: Tensor, is_lower: bool) -> Tensor:
     """
-    Builds a triangular matrix using a set of free parameters. WARNING: this function only builds
-    non-unit triangular matrices.
+    Builds a triangular matrix using a set of free parameters.
+    
+    WARNING: This function only builds non-unit triangular matrices.
 
     Parameters
     ----------
@@ -119,8 +120,24 @@ def to_triangular_matrix(ndim: int, params: Tensor, is_lower: bool) -> Tensor:
     res : torch.Tensor
         Returns a triangular matrix with dimensions (L, M, N, N), where N is ndim.
     """
+    # Sanity checks.
+    if not isinstance(ndim, int):
+        raise TypeError(f"`ndim` must be an integer, but got {type(ndim)}.")
+    if ndim <= 0:
+        raise ValueError(f"`ndim` must be a positive integer, but got {ndim}.")
+    if not isinstance(params, torch.Tensor):
+        raise TypeError(f"params must be type torch.Tensor, but got type {type(params)}.")
+    if len(tuple(params.size())) != 3:
+        raise ValueError(f"len(tuple( params.size() )) must be 3, but got length {len(tuple(params.size()))}.")
+    if not isinstance(is_lower, bool):
+        raise TypeError("`is_lower` must be a Boolean value.")
+    
     # Allocate the triangular matrix.
-    batch, nmodes, _ = list(params.size())
+    batch, nmodes, n_params = tuple(params.size())
+    expected_n_params = num_tri_matrix_params_per_mode(ndim=ndim, is_unit_tri=False)
+    if n_params != expected_n_params:
+        raise ValueError(f"params.size()[2] must be {expected_n_params}, but got {n_params}.")
+    
     tri_mat = torch.zeros(
         (batch, nmodes, ndim, ndim), dtype=params.dtype, device=params.device
     )
