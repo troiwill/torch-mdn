@@ -127,8 +127,8 @@ def to_triangular_matrix(ndim: int, params: Tensor, is_lower: bool) -> Tensor:
         raise ValueError(f"`ndim` must be a positive integer, but got {ndim}.")
     if not isinstance(params, torch.Tensor):
         raise TypeError(f"params must be type torch.Tensor, but got type {type(params)}.")
-    if len(tuple(params.size())) != 3:
-        raise ValueError(f"len(tuple( params.size() )) must be 3, but got length {len(tuple(params.size()))}.")
+    if len(params.size()) != 3:
+        raise ValueError(f"len(tuple( params.size() )) must be 3, but got length {len(params.size())}.")
     if not isinstance(is_lower, bool):
         raise TypeError("`is_lower` must be a Boolean value.")
     
@@ -169,4 +169,15 @@ def torch_matmul_4d(a: Tensor, b: Tensor) -> Tensor:
         The matrix-matrix multiplication of a and b, where the third and fourth dimensions are
         multiplied.
     """
+    # Sanity checks.
+    if not isinstance(a, Tensor):
+        raise TypeError(f"a must be type torch.Tensor, but got type {type(a)}.")
+    if not isinstance(b, Tensor):
+        raise TypeError(f"a must be type torch.Tensor, but got type {type(b)}.")
+    if len(a.size()) != 4:
+        raise ValueError(f"a.size() must have length 4, but got length {len(a.size())}.")
+    if len(b.size()) != 4:
+        raise ValueError(f"b.size() must have length 4, but got length {len(b.size())}.")
+    if a.size()[2:] != b.size()[2:]:
+        raise ValueError(f"a.size()[2:] ({a.size()[2:]}) != b.size()[2:] ({b.size()[2:]}).")
     return torch.einsum("abcd, abde -> abce", a, b)
