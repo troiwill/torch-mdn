@@ -1,4 +1,5 @@
 import numpy as np
+from pydantic import ValidationError
 import pytest
 import torch
 from torch_mdn.utils import (
@@ -11,17 +12,17 @@ from torch_mdn.utils import (
 
 
 class TestDiagIndicesTri:
-    def test_type_error_ndim(self):
-        with pytest.raises(TypeError):
-            _ = diag_indices_tri(ndim=0.2, is_lower=True)
+    def test_validation_error_ndim(self):
+        with pytest.raises(ValidationError):
+            _ = diag_indices_tri(ndim="hello", is_lower=True)
 
     def test_value_error_ndim(self):
-        with pytest.raises(ValueError):
-            _ = diag_indices_tri(ndim=0, is_lower=True)
+        with pytest.raises(ValidationError):
+            _ = diag_indices_tri(ndim=-1, is_lower=True)
 
-    def test_type_error_is_lower(self):
-        with pytest.raises(TypeError):
-            _ = diag_indices_tri(ndim=1, is_lower=0)
+    def test_validation_error_is_lower(self):
+        with pytest.raises(ValidationError):
+            _ = diag_indices_tri(ndim=1, is_lower="hello")
 
     def test_return_type(self):
         res = diag_indices_tri(ndim=2, is_lower=False)
@@ -76,16 +77,16 @@ class TestEpsilon:
 
 
 class TestNumTriMatrixParamsPerMode:
-    def test_type_error_ndim(self):
-        with pytest.raises(TypeError):
+    def test_validation_error_ndim(self):
+        with pytest.raises(ValidationError):
             _ = num_tri_matrix_params_per_mode(ndim="kd", is_unit_tri=True)
 
     def test_value_error_ndim(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValidationError):
             _ = num_tri_matrix_params_per_mode(ndim=0, is_unit_tri=True)
 
-    def test_type_error_ndim(self):
-        with pytest.raises(TypeError):
+    def test_validation_error_is_unit_tri(self):
+        with pytest.raises(ValidationError):
             _ = num_tri_matrix_params_per_mode(ndim=1, is_unit_tri=23)
 
     def test_return_type(self):
@@ -119,24 +120,24 @@ class TestNumTriMatrixParamsPerMode:
 
 class TestToTriangularMatrix:
     def test_type_error_ndim(self):
-        with pytest.raises(TypeError):
+        with pytest.raises(ValidationError):
             _ = to_triangular_matrix(ndim=12.0, params="23", is_lower=10)
 
     def test_value_error_ndim(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValidationError):
             _ = to_triangular_matrix(ndim=-1, params="23", is_lower=10)
 
     def test_type_error_params(self):
-        with pytest.raises(TypeError):
+        with pytest.raises(ValidationError):
             _ = to_triangular_matrix(ndim=1, params="23", is_lower=10)
 
     def test_params_size_length(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValidationError):
             wrong_params = torch.tensor(np.random.random(size=(10, 3)))
             _ = to_triangular_matrix(ndim=1, params=wrong_params, is_lower=10)
 
     def test_type_error_is_lower(self):
-        with pytest.raises(TypeError):
+        with pytest.raises(ValidationError):
             wrong_params = torch.tensor(np.random.random(size=(10, 3, 5)))
             _ = to_triangular_matrix(ndim=1, params=wrong_params, is_lower=10)
 
@@ -221,11 +222,11 @@ class TestToTriangularMatrix:
 
 class TestTorchMatmul4D:
     def test_type_error_a(self):
-        with pytest.raises(TypeError):
+        with pytest.raises(ValidationError):
             _ = torch_matmul_4d(a=12, b=12)
 
     def test_type_error_b(self):
-        with pytest.raises(TypeError):
+        with pytest.raises(ValidationError):
             a = torch.tensor(
                 np.array([[[[1, 3], [1, 1]], [[2, 1], [1, 3]], [[2, 2], [4, 3]]]])
             )
