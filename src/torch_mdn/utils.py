@@ -1,7 +1,12 @@
-from pydantic import validate_arguments, PositiveInt
+"""Module providing utility functions for other code in this package."""
+
+from typing import Tuple
+from pydantic import (
+    validate_arguments,
+    PositiveInt,
+)
 import torch
 from torch import Tensor
-from typing import Tuple
 
 
 @validate_arguments
@@ -34,8 +39,8 @@ def diag_indices_tri(ndim: PositiveInt, is_lower: bool) -> Tuple[int, ...]:
         )
 
         diag_indices[0] = start_idx
-        for i, ig in enumerate(index_gaps):
-            diag_indices[i + 1] = diag_indices[i] + ig
+        for i, index_gap in enumerate(index_gaps):
+            diag_indices[i + 1] = diag_indices[i] + index_gap
 
         # Sanity check.
         if diag_indices[-1] != expected_end_idx:
@@ -84,7 +89,7 @@ def num_tri_matrix_params_per_mode(ndim: PositiveInt, is_unit_tri: bool) -> int:
     return num_params
 
 
-@validate_arguments(config=dict(arbitrary_types_allowed=True))
+@validate_arguments(config={"arbitrary_types_allowed": True})
 def to_triangular_matrix(ndim: PositiveInt, params: Tensor, is_lower: bool) -> Tensor:
     """
     Builds a triangular matrix using a set of free parameters.
@@ -127,7 +132,7 @@ def to_triangular_matrix(ndim: PositiveInt, params: Tensor, is_lower: bool) -> T
         (batch, nmodes, ndim, ndim), dtype=params.dtype, device=params.device
     )
 
-    if is_lower == True:
+    if is_lower is True:
         i, j = torch.tril_indices(ndim, ndim)
     else:
         i, j = torch.triu_indices(ndim, ndim)
@@ -135,18 +140,18 @@ def to_triangular_matrix(ndim: PositiveInt, params: Tensor, is_lower: bool) -> T
     return tri_mat
 
 
-@validate_arguments(config=dict(arbitrary_types_allowed=True))
-def torch_matmul_4d(a: Tensor, b: Tensor) -> Tensor:
+@validate_arguments(config={"arbitrary_types_allowed": True})
+def torch_matmul_4d(tensor1: Tensor, tensor2: Tensor) -> Tensor:
     """
     Performs matrix-matrix multiplication for two 4D matrices, where the last two dimensions of
     each matrix is (N,N).
 
     Parameters
     ----------
-    a : torch.Tensor
+    tensor1 : torch.Tensor
         The first 4-D matrix.
 
-    b : torch.Tensor
+    tensor2 : torch.Tensor
         The second 4-D matrix.
 
     Returns
@@ -156,16 +161,16 @@ def torch_matmul_4d(a: Tensor, b: Tensor) -> Tensor:
         multiplied.
     """
     # Sanity checks.
-    if len(a.size()) != 4:
+    if len(tensor1.size()) != 4:
         raise ValueError(
-            f"a.size() must have length 4, but got length {len(a.size())}."
+            f"tensor1.size() must have length 4, but got length {len(tensor1.size())}."
         )
-    if len(b.size()) != 4:
+    if len(tensor2.size()) != 4:
         raise ValueError(
-            f"b.size() must have length 4, but got length {len(b.size())}."
+            f"tensor2.size() must have length 4, but got length {len(tensor2.size())}."
         )
-    if a.size()[2:] != b.size()[2:]:
+    if tensor1.size()[2:] != tensor2.size()[2:]:
         raise ValueError(
-            f"a.size()[2:] ({a.size()[2:]}) != b.size()[2:] ({b.size()[2:]})."
+            f"a.size()[2:] ({tensor1.size()[2:]}) != b.size()[2:] ({tensor2.size()[2:]})."
         )
-    return torch.einsum("abcd, abde -> abce", a, b)
+    return torch.einsum("abcd, abde -> abce", tensor1, tensor2)

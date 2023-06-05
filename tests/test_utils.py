@@ -1,3 +1,5 @@
+"""Module to test code in utils.py"""
+
 import numpy as np
 from pydantic import ValidationError
 import pytest
@@ -26,8 +28,8 @@ class TestDiagIndicesTri:
 
     def test_return_type(self):
         res = diag_indices_tri(ndim=2, is_lower=False)
-        assert isinstance(res, tuple)
-        assert all([isinstance(x, int) for x in res]) == True
+        assert isinstance(res, tuple) is True
+        assert all([isinstance(x, int) for x in res]) is True
 
     def test_upper_tri_ndim1(self):
         res = diag_indices_tri(ndim=1, is_lower=False)
@@ -69,7 +71,7 @@ class TestDiagIndicesTri:
 class TestEpsilon:
     def test_return_type(self):
         res = epsilon()
-        assert isinstance(res, float)
+        assert isinstance(res, float) is True
 
     def test_return_value(self):
         res = epsilon()
@@ -91,7 +93,7 @@ class TestNumTriMatrixParamsPerMode:
 
     def test_return_type(self):
         res = num_tri_matrix_params_per_mode(ndim=1, is_unit_tri=True)
-        assert isinstance(res, int)
+        assert isinstance(res, int) is True
 
     def test_ndim1_unit_tri(self):
         res = num_tri_matrix_params_per_mode(ndim=1, is_unit_tri=True)
@@ -133,7 +135,7 @@ class TestToTriangularMatrix:
 
     def test_params_size_length(self):
         with pytest.raises(ValidationError):
-            wrong_params = torch.tensor(np.random.random(size=(10, 3)))
+            wrong_params = torch.randn(10, 3)
             _ = to_triangular_matrix(ndim=1, params=wrong_params, is_lower=10)
 
     def test_type_error_is_lower(self):
@@ -163,7 +165,7 @@ class TestToTriangularMatrix:
                 ]
             )
         )
-        assert torch.equal(res, correct_params) == True
+        assert torch.equal(res, correct_params) is True
 
     def test_params_ndim3_is_lower_tri(self):
         tri_params = torch.tensor(np.arange(12).reshape(2, 1, 6))
@@ -176,7 +178,7 @@ class TestToTriangularMatrix:
                 ]
             )
         )
-        assert torch.equal(res, correct_params) == True
+        assert torch.equal(res, correct_params) is True
 
     def test_params_ndim1_is_upper_tri(self):
         tri_params = torch.tensor(np.arange(6).reshape(3, 2, 1))
@@ -190,7 +192,7 @@ class TestToTriangularMatrix:
                 ]
             )
         )
-        assert torch.equal(res, correct_params) == True
+        assert torch.equal(res, correct_params) is True
 
     def test_params_ndim2_is_upper_tri(self):
         tri_params = torch.tensor(np.arange(18).reshape(3, 2, 3))
@@ -204,7 +206,7 @@ class TestToTriangularMatrix:
                 ]
             )
         )
-        assert torch.equal(res, correct_params) == True
+        assert torch.equal(res, correct_params) is True
 
     def test_params_ndim3_is_upper_tri(self):
         tri_params = torch.tensor(np.arange(12).reshape(2, 1, 6))
@@ -217,27 +219,27 @@ class TestToTriangularMatrix:
                 ]
             )
         )
-        assert torch.equal(res, correct_params) == True
+        assert torch.equal(res, correct_params) is True
 
 
 class TestTorchMatmul4D:
     def test_type_error_a(self):
         with pytest.raises(ValidationError):
-            _ = torch_matmul_4d(a=12, b=12)
+            _ = torch_matmul_4d(tensor1=12, tensor2=12)
 
     def test_type_error_b(self):
         with pytest.raises(ValidationError):
             a = torch.tensor(
                 np.array([[[[1, 3], [1, 1]], [[2, 1], [1, 3]], [[2, 2], [4, 3]]]])
             )
-            _ = torch_matmul_4d(a=a, b=12)
+            _ = torch_matmul_4d(tensor1=a, tensor2=12)
 
     def test_value_error_a_length(self):
         with pytest.raises(ValueError):
             a = torch.tensor(
                 np.array([[[1, 3], [1, 1]], [[2, 1], [1, 3]], [[2, 2], [4, 3]]])
             )
-            _ = torch_matmul_4d(a=a, b=a)
+            _ = torch_matmul_4d(tensor1=a, tensor2=a)
 
     def test_value_error_b_length(self):
         with pytest.raises(ValueError):
@@ -247,7 +249,7 @@ class TestTorchMatmul4D:
             b = torch.tensor(
                 np.array([[[1, 3], [1, 1]], [[2, 1], [1, 3]], [[2, 2], [4, 3]]])
             )
-            _ = torch_matmul_4d(a=a, b=b)
+            _ = torch_matmul_4d(tensor1=a, tensor2=b)
 
     def test_value_error_ab_sizes(self):
         with pytest.raises(ValueError):
@@ -265,23 +267,23 @@ class TestTorchMatmul4D:
                     ]
                 )
             )
-            _ = torch_matmul_4d(a=a, b=b)
+            _ = torch_matmul_4d(tensor1=a, tensor2=b)
 
     def test_matmul_identity1(self):
         rand = torch.tensor(np.random.random(size=(5, 9, 2, 2)))
         identity = torch.tensor(np.tile(np.eye(2).reshape(1, 1, 2, 2), (5, 9, 1, 1)))
-        product = torch_matmul_4d(a=rand, b=identity)
-        assert torch.equal(rand, product) == True
+        product = torch_matmul_4d(tensor1=rand, tensor2=identity)
+        assert torch.equal(rand, product) is True
 
     def test_matmul_identity2(self):
         rand = torch.tensor(np.random.random(size=(5, 9, 2, 2)))
         identity = torch.tensor(np.tile(np.eye(2).reshape(1, 1, 2, 2), (5, 9, 1, 1)))
-        product = torch_matmul_4d(a=identity, b=rand)
-        assert torch.equal(rand, product) == True
+        product = torch_matmul_4d(tensor1=identity, tensor2=rand)
+        assert torch.equal(rand, product) is True
 
     def test_matmul_is_same_as_numpy_matmul(self):
         a = np.array([[[[1, 3], [1, 1]], [[2, 1], [1, 3]], [[2, 2], [4, 3]]]])
         b = np.array([[[[2, 3], [4, 3]], [[0, 9], [5, 4]], [[6, 8], [7, 2]]]])
         np_product = a @ b
-        product = torch_matmul_4d(a=torch.tensor(a), b=torch.tensor(b))
-        assert torch.equal(product, torch.tensor(np_product)) == True
+        product = torch_matmul_4d(tensor1=torch.tensor(a), tensor2=torch.tensor(b))
+        assert torch.equal(product, torch.tensor(np_product)) is True
