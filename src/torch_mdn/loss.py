@@ -1,34 +1,31 @@
-from __future__ import annotations
 from abc import abstractmethod
 import math
+
+from pydantic import validate_arguments, PositiveInt
 import torch
 from torch import Tensor
 import torch.nn as nn
-from torch_mdn.layer import MatrixDecompositionType
+from torch_mdn.gaussian import MatrixDecompositionType
 import torch_mdn.utils as utils
 
 
 class _GaussianNLLLoss(nn.Module):
     """An abstract base class for developing the negative log-likelihood loss function."""
 
-    def __init__(self, ndim: int, nmodes: int) -> None:
+    @validate_arguments
+    def __init__(self, ndim: PositiveInt, nmodes: PositiveInt) -> None:
         """
-        ndim : int
+        ndim : PositiveInt
             The number of dimensions of the Gaussian distribution.
 
-        nmodes : int
+        nmodes : PositiveInt
             The number of modes. Only useful for mixture models.
         """
-        super().__init__()
-        # Sanity checks.
-        if not isinstance(ndim, int) or ndim < 1:
-            raise Exception("`ndim` must be a postive integer.")
-        if not isinstance(nmodes, int) or nmodes < 1:
-            raise Exception("`nmodes` must be a positive integer.")
+        super().__init__()  # type: ignore
 
-        self.ndim = ndim
-        self.nmodes = nmodes
-        self.half_log_twopi = self.ndim * 0.5 * torch.log(torch.tensor(2 * math.pi))
+        self._ndim = ndim
+        self._nmodes = nmodes
+        self._half_log_twopi = self._ndim * 0.5 * torch.log(torch.tensor(2 * math.pi))
 
     def extra_repr(self) -> str:
         """
@@ -40,8 +37,8 @@ class _GaussianNLLLoss(nn.Module):
             Detailed information about the loss function.
         """
         return (
-            f"ndim={self.ndim}, nmodes={self.nmodes}, "
-            + f"target_size=[{self.ndim}, 1]"
+            f"ndim={self._ndim}, nmodes={self._nmodes}, "
+            + f"target_size=[{self._ndim}, 1]"
         )
 
 
@@ -49,12 +46,13 @@ class _MatrixDecompositionNLLLoss(_GaussianNLLLoss):
     """An abstract base class for developing the matrix decomposition related operations for the
     negative log-likelihood loss function."""
 
-    def __init__(self, ndim: int, nmodes: int) -> None:
+    @validate_arguments
+    def __init__(self, ndim: PositiveInt, nmodes: PositiveInt) -> None:
         """
-        ndim : int
+        ndim : PositiveInt
             The number of dimensions of the Gaussian distribution.
 
-        nmodes : int
+        nmodes : PositiveInt
             The number of modes. Only useful for mixture models.
         """
         super().__init__(ndim=ndim, nmodes=nmodes)
@@ -125,14 +123,15 @@ class _CholeskyDecompositionNLLLoss(_MatrixDecompositionNLLLoss):
             The number of modes. Only useful for mixture models.
         """
         super().__init__(ndim=ndim, nmodes=nmodes)
-        self.__u_diag_indices = torch.tensor(
-            utils.diag_indices_tri(ndim=self.ndim, is_lower=False), dtype=torch.int64
+        self._u_diag_indices = torch.tensor(
+            utils.diag_indices_tri(ndim=self._ndim, is_lower=False), dtype=torch.int64
         )
 
+    @validate_arguments(config={"arbitrary_types_allowed": True})
     def compute_ln_det_sigma(self, cpmat_params: Tensor) -> Tensor:
         """
-        Computes the $ln(det(\Sigma))$ for the loss function, where Sigma is the predicted
-        covariance/precision matrices from the output layer. Note that $\Sigma$ is also
+        Computes the ln(det(Sigma)) for the loss function, where Sigma is the predicted
+        covariance/precision matrices from the output layer. Note that Sigma is also
         decomposed.
 
         Parameters
@@ -143,14 +142,15 @@ class _CholeskyDecompositionNLLLoss(_MatrixDecompositionNLLLoss):
         Returns
         -------
         res : Tensor
-            The result of ln(det(\Sigma)).
+            The result of ln(det(Sigma)).
         """
         # Extract the diagonal indices for the U matrices.
-        diag_u = cpmat_params.index_select(2, self.__u_diag_indices)
+        diag_u = cpmat_params.index_select(2, self._u_diag_indices)
 
         # Compute the sum of log(diag_u). This is equivalent to Tr(log(U)).
         return torch.log(diag_u).sum(dim=2, keepdim=True)
 
+    @validate_arguments(config={"arbitrary_types_allowed": True})
     def compute_quad_sigma(self, residual: Tensor, cpmat_params: Tensor) -> Tensor:
         """
         Computes the quadratic (x^T) * Sigma * (x) for the loss function, where Sigma is the
@@ -171,14 +171,14 @@ class _CholeskyDecompositionNLLLoss(_MatrixDecompositionNLLLoss):
             The result of (x^T) * Sigma * (x).
         """
         # Do shape sanity check: residual.size[1:] == (nmodes, ndim, 1)
-        if tuple(residual.size()[1:]) != (self.nmodes, self.ndim, 1):
+        if tuple(residual.size()[1:]) != (self._nmodes, self._ndim, 1):
             raise ValueError(
-                f"residual.shape[1:] should be {(self.nmodes, self.ndim, 1)}, but got {tuple(residual.size()[1:])}."
+                f"residual.shape[1:] should be {(self._nmodes, self._ndim, 1)}, but got {tuple(residual.size()[1:])}."
             )
 
         # Create U matrix of dim -> [batch, nmodes, ndim, ndim]
         u_mat = utils.to_triangular_matrix(
-            ndim=self.ndim, params=cpmat_params, is_lower=False
+            ndim=self._ndim, params=cpmat_params, is_lower=False
         )
 
         # Compatible sanity check before computing norm.
@@ -186,9 +186,9 @@ class _CholeskyDecompositionNLLLoss(_MatrixDecompositionNLLLoss):
             raise ValueError(
                 f"u_mat.shape[:2] {tuple(residual.size()[:2])} != residual.shape[:2] {tuple(residual.size()[:2])}."
             )
-        if u_mat.size()[-1] != self.ndim:
+        if u_mat.size()[-1] != self._ndim:
             raise ValueError(
-                f"u_mat.shape[-1] should be {self.ndim}, but got {int(u_mat.size()[-1])}."
+                f"u_mat.shape[-1] should be {self._ndim}, but got {int(u_mat.size()[-1])}."
             )
 
         # Compute ||U * (x - mu)||^2_2
@@ -213,24 +213,26 @@ class _CholeskyDecompositionNLLLoss(_MatrixDecompositionNLLLoss):
 class _GaussianDecompositionNLLLoss(_GaussianNLLLoss):
     """A base class for Gaussian NLL classes that use matrix decomposition methods."""
 
+    @validate_arguments(config={"arbitrary_types_allowed": True})
     def __init__(
-        self, matrix_decomp_type: MatrixDecompositionType, ndim: int, nmodes: int
+        self,
+        matrix_decomp_type: MatrixDecompositionType,
+        ndim: PositiveInt,
+        nmodes: PositiveInt,
     ) -> None:
         """
         matrix_decomp_type : MatrixDecompositionType
             The matrix decomposition type.
 
-        ndim : int
+        ndim : PositiveInt
             The number of dimensions of the Gaussian distribution.
 
-        nmodes : int
+        nmodes : PositiveInt
             The number of modes. Only useful for mixture models.
         """
         super().__init__(ndim=ndim, nmodes=nmodes)
         if matrix_decomp_type == MatrixDecompositionType.full_UU:
-            self.decomp_loss = _CholeskyDecompositionNLLLoss(
-                ndim=self.ndim, nmodes=self.nmodes
-            )
+            self._decomp_loss = _CholeskyDecompositionNLLLoss(ndim=ndim, nmodes=nmodes)
         else:
             raise NotImplementedError(
                 f"Matrix decomposition {matrix_decomp_type} is not implemented."
@@ -247,7 +249,7 @@ class _GaussianDecompositionNLLLoss(_GaussianNLLLoss):
         """
         return (
             super().extra_repr()
-            + f"matrix_decomposition={self.decomp_loss.decomposed_name()}"
+            + f"matrix_decomposition={self._decomp_loss.decomposed_name()}"
         )
 
 
@@ -256,23 +258,28 @@ class GaussianCovarianceNLLoss(_GaussianDecompositionNLLLoss):
     The negative log-likelihood loss function for `torch_mdn.layer.GaussianCovarianceLayer`.
     """
 
+    @validate_arguments(config={"arbitrary_types_allowed": True})
     def __init__(
-        self, matrix_decomp_type: MatrixDecompositionType, ndim: int, nmodes: int
+        self,
+        matrix_decomp_type: MatrixDecompositionType,
+        ndim: PositiveInt,
+        nmodes: PositiveInt,
     ) -> None:
         """
         matrix_decomp_type : MatrixDecompositionType
             The matrix decomposition type.
 
-        ndim : int
+        ndim : PositiveInt
             The number of dimensions of the Gaussian distribution.
 
-        nmodes : int
+        nmodes : PositiveInt
             The number of modes. Only useful for mixture models.
         """
         super().__init__(
             matrix_decomp_type=matrix_decomp_type, ndim=ndim, nmodes=nmodes
         )
 
+    @validate_arguments(config={"arbitrary_types_allowed": True})
     def forward(self, cpmat_params: Tensor, target: Tensor) -> Tensor:
         """
         Computes the negative log-likelihood loss for a zero-mean Gaussian PDF. This loss function
@@ -284,7 +291,7 @@ class GaussianCovarianceNLLoss(_GaussianDecompositionNLLLoss):
             The covariance/precision matrix free parameters from the covariance/precision layer.
 
         target : torch.Tensor
-            The residual or error. This error is assumed to be sampled from the covariance \Sigma.
+            The residual or error. This error is assumed to be sampled from the covariance Sigma.
 
         Returns
         -------
@@ -292,17 +299,17 @@ class GaussianCovarianceNLLoss(_GaussianDecompositionNLLLoss):
             The mean negative log-likelihood of the batch.
         """
         # Reshape the target/residual.
-        target = target.view((-1, 1, self.ndim, 1))
+        target = target.view((-1, 1, self._ndim, 1))
 
         # Compute the natural log of the determinant: ln(det(Sigma)^-1/2).
-        ln_det_sigma = self.decomp_loss.compute_ln_det_sigma(cpmat_params=cpmat_params)
+        ln_det_sigma = self._decomp_loss.compute_ln_det_sigma(cpmat_params=cpmat_params)
 
         # Compute the quadratic: e^T * Sigma^-1 * e.
-        quad_sigma = self.decomp_loss.compute_quad_sigma(
+        quad_sigma = self._decomp_loss.compute_quad_sigma(
             residual=target, cpmat_params=cpmat_params
         )
 
-        res = -self.half_log_twopi + ln_det_sigma - (0.5 * quad_sigma)
+        res = -self._half_log_twopi + ln_det_sigma - (0.5 * quad_sigma)
         return -1.0 * torch.mean(res)
 
 
@@ -311,25 +318,30 @@ class GaussianNLLoss(_GaussianDecompositionNLLLoss):
     The negative log-likelihood loss function for `torch_mdn.layer.GaussianLayer`.
     """
 
+    @validate_arguments(config={"arbitrary_types_allowed": True})
     def __init__(
-        self, matrix_decomp_type: MatrixDecompositionType, ndim: int, nmodes: int
-    ) -> GaussianNLLoss:
+        self,
+        matrix_decomp_type: MatrixDecompositionType,
+        ndim: PositiveInt,
+        nmodes: PositiveInt,
+    ) -> None:
         """
         Creates an instance of the negative log-likelihood loss function for a Gaussian layer.
 
         matrix_decomp_type : MatrixDecompositionType
             The matrix decomposition type.
 
-        ndim : int
+        ndim : PositiveInt
             The number of dimensions of the Gaussian distribution.
 
-        nmodes : int
+        nmodes : PositiveInt
             The number of modes. Only useful for mixture models.
         """
         super().__init__(
             matrix_decomp_type=matrix_decomp_type, ndim=ndim, nmodes=nmodes
         )
 
+    @validate_arguments(config={"arbitrary_types_allowed": True})
     def forward(
         self, mu_params: Tensor, cpmat_params: Tensor, target: Tensor
     ) -> Tensor:
@@ -354,19 +366,19 @@ class GaussianNLLoss(_GaussianDecompositionNLLLoss):
             The mean negative log-likelihood of the batch.
         """
         # Compute the residual.
-        target = target.view((-1, 1, self.ndim, 1))
-        mu_params = mu_params.view((-1, self.nmodes, self.ndim, 1))
+        target = target.view((-1, 1, self._ndim, 1))
+        mu_params = mu_params.view((-1, self._nmodes, self._ndim, 1))
         residual = target - mu_params
 
         # Compute the natural log of the determinant: ln(det(Sigma)^-1/2).
-        ln_det_sigma = self.decomp_loss.compute_ln_det_sigma(cpmat_params=cpmat_params)
+        ln_det_sigma = self._decomp_loss.compute_ln_det_sigma(cpmat_params=cpmat_params)
 
         # Compute the quadratic: e^T * Sigma^-1 * e.
-        quad_sigma = self.decomp_loss.compute_quad_sigma(
+        quad_sigma = self._decomp_loss.compute_quad_sigma(
             residual=residual, cpmat_params=cpmat_params
         )
 
-        res = -self.half_log_twopi + ln_det_sigma - (0.5 * quad_sigma)
+        res = -self._half_log_twopi + ln_det_sigma - (0.5 * quad_sigma)
         return -1.0 * torch.mean(res)
 
 
@@ -375,9 +387,13 @@ class GaussianMixtureNLLoss(_GaussianDecompositionNLLLoss):
     The negative log-likelihood loss function for `torch_mdn.layer.GaussianMixtureLayer`.
     """
 
+    @validate_arguments(config={"arbitrary_types_allowed": True})
     def __init__(
-        self, matrix_decomp_type: MatrixDecompositionType, ndim: int, nmodes: int
-    ) -> GaussianMixtureNLLoss:
+        self,
+        matrix_decomp_type: MatrixDecompositionType,
+        ndim: PositiveInt,
+        nmodes: PositiveInt,
+    ) -> None:
         """
         Creates an instance of the negative log-likelihood loss function for a Gaussian mixture
         layer.
@@ -385,16 +401,17 @@ class GaussianMixtureNLLoss(_GaussianDecompositionNLLLoss):
         matrix_decomp_type : MatrixDecompositionType
             The matrix decomposition type.
 
-        ndim : int
+        ndim : PositiveInt
             The number of dimensions of the Gaussian distribution.
 
-        nmodes : int
+        nmodes : PositiveInt
             The number of modes. Only useful for mixture models.
         """
         super().__init__(
             matrix_decomp_type=matrix_decomp_type, ndim=ndim, nmodes=nmodes
         )
 
+    @validate_arguments(config={"arbitrary_types_allowed": True})
     def forward(
         self,
         coeff_params: Tensor,
@@ -427,22 +444,22 @@ class GaussianMixtureNLLoss(_GaussianDecompositionNLLLoss):
             The mean negative log-likelihood of the batch.
         """
         # Compute the residual.
-        target = target.view((-1, 1, self.ndim, 1))
-        mu_params = mu_params.view((-1, self.nmodes, self.ndim, 1))
+        target = target.view((-1, 1, self._ndim, 1))
+        mu_params = mu_params.view((-1, self._nmodes, self._ndim, 1))
         residual = target - mu_params
 
         # Compute the natural log of the mixture coefficients: ln(pi_{1...n})
         ln_coeffs = torch.log(coeff_params)
 
         # Compute the natural log of the determinant: ln(det(Sigma)^-1/2).
-        ln_det_sigma = self.decomp_loss.compute_ln_det_sigma(cpmat_params=cpmat_params)
+        ln_det_sigma = self._decomp_loss.compute_ln_det_sigma(cpmat_params=cpmat_params)
 
         # Compute the quadratic: e^T * Sigma^-1 * e.
-        quad_sigma = self.decomp_loss.compute_quad_sigma(
+        quad_sigma = self._decomp_loss.compute_quad_sigma(
             residual=residual, cpmat_params=cpmat_params
         )
 
         # Perform the log-sum-exp trick.
-        x = ln_coeffs - self.half_log_twopi + ln_det_sigma - (0.5 * quad_sigma)
+        x = ln_coeffs - self._half_log_twopi + ln_det_sigma - (0.5 * quad_sigma)
         lse = torch.logsumexp(x, 2)
         return -1.0 * torch.mean(lse)
