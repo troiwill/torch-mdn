@@ -3,30 +3,18 @@
 PyTorch MDN (torch-mdn) is a set of classes and functions for building and evaluating a Mixture Density Network in PyTorch.
 
 ## Setting up the environment
-There are two methods you can use to set up the environment.
+Run the following commands to set up the environment.
 
-### Method #1 (Recommended)
-Run the following conda command:
 ```
 cd ${HOME}
 mkdir -p repos && cd repos
 git clone https://github.com/troiwill/torch-mdn.git
-conda create -n torch_mdn python=3.8 pytorch matplotlib
-```
-This should create a conda environment with the same dependencies mentioned in the [environment.yml](env/environment.yml) file.
+conda create -n torch-mdn python=3.8 pytorch==1.10.2 matplotlib
 
-### Method #2
-Clone the repository and then source the [activate.sh](env/activate.sh) script.
+# Activate the conda environment and install Python dependencies.
+conda activate torch-mdn
+pip install pydantic==1.10.10
 ```
-cd ${HOME}
-mkdir -p repos && cd repos
-git clone https://github.com/troiwill/torch-mdn.git
-cd torch-mdn/env
-source activate.sh
-```
-Please note that sourcing the [activate.sh](env/activate.sh) script will also activate the environment and add `torch_mdn` to the `PYTHONPATH` environment variable.
-
-**Note:** After you set up the environment using Method #1 or #2, install the build tool via the following command: `pip install build`.
 
 ## Installing the torch_mdn Python package
 
