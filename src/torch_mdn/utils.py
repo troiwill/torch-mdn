@@ -1,12 +1,33 @@
-"""Module providing utility functions for other code in this package."""
+"""
+Module providing utility functions for other code in this package.
+"""
 
-from typing import Tuple
+from typing import Tuple, List
+
 from pydantic import (
     validate_arguments,
     PositiveInt,
 )
 import torch
 from torch import Tensor
+
+
+@validate_arguments
+def create_torch_indices(indices: List[int]) -> Tensor:
+    """
+    Creates a PyTorch tensor of Int64 with the input list of integers.
+
+    Parameters
+    ----------
+    indices : List[int]
+        The list of integers.
+
+    Returns
+    -------
+    res : torch.Tensor
+        The indices as a tensor.
+    """
+    return torch.tensor(indices, dtype=torch.int64)
 
 
 @validate_arguments
