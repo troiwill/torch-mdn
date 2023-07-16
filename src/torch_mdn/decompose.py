@@ -1,5 +1,6 @@
 from abc import abstractmethod, ABC
 from enum import Enum
+import math
 from typing import Tuple
 
 from pydantic import validate_arguments, PositiveInt
@@ -59,31 +60,9 @@ class MatrixDecompositionBase(ABC):
         """
 
     @abstractmethod
-    def compute_ln_det_sigma(self, matrix_free_params: torch.Tensor) -> torch.Tensor:
+    def compute_loss(self, residual: torch.Tensor, matrix_free_params: torch.Tensor) -> torch.Tensor:
         """
-        Computes the ln(det(Sigma)) for the loss function, where sigma is the predicted
-        covariance/precision matrices from the neural network. Note that Sigma is assumed
-        decomposed.
-
-        Parameters
-        ----------
-        matrix_free_params : torch.Tensor
-            The free parameters that are used to build the (covariance or precision) matrix.
-
-        Returns
-        -------
-        res : torch.Tensor
-            The result of ln(det(Sigma)).
-        """
-
-    @abstractmethod
-    def compute_quad_sigma(
-        self, residual: torch.Tensor, matrix_free_params: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Computes the quadratic (residual^T) * Sigma * (residual) for the loss function, where
-        Sigma is the predicted covariance/precision matrices from the neural network. Note
-        that Sigma is also decomposed.
+        Computes the loss function using Cholesky decomposition.
 
         Parameters
         ----------
@@ -91,12 +70,12 @@ class MatrixDecompositionBase(ABC):
             The residual/error that is computed using the target from the data.
 
         matrix_free_params : torch.Tensor
-            The free parameters that are used to build the (covariance or precision) matrix.
+            The free parameters that are used to build the covariance/precision matrix.
 
         Returns
         -------
         res : torch.Tensor
-            The result of (x^T) * Sigma * (x).
+            The result of -0.5 * log(2 * pi) + ln(det(Sigma)) - (0.5 * (x^T) * Sigma * (x)).
         """
 
     @abstractmethod
@@ -218,35 +197,11 @@ class CholeskyMatrixDecomposition(MatrixDecompositionBase):
             + torch_mdn.utils.epsilon()
         )
         return matrix_free_params
-
+    
     @validate_arguments(config={"arbitrary_types_allowed": True})
-    def compute_ln_det_sigma(self, matrix_free_params: torch.Tensor) -> torch.Tensor:
+    def compute_loss(self, residual: torch.Tensor, matrix_free_params: torch.Tensor) -> torch.Tensor:
         """
-        Computes the ln(det(Sigma)) for the loss function using Cholesky decomposition.
-
-        Parameters
-        ----------
-        matrix_free_params : torch.Tensor
-            The free parameters that are used to build the covariance/precision matrix.
-
-        Returns
-        -------
-        res : torch.Tensor
-            The result of ln(det(Sigma)).
-        """
-        # Extract the diagonal indices for the U matrices.
-        diag_u = matrix_free_params.index_select(2, self._u_diag_indices)
-
-        # Compute the sum of log(diag_u). This is equivalent to Tr(log(U)).
-        return torch.log(diag_u).sum(dim=2, keepdim=True)
-
-    @validate_arguments(config={"arbitrary_types_allowed": True})
-    def compute_quad_sigma(
-        self, residual: torch.Tensor, matrix_free_params: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Computes the quadratic (x^T) * Sigma * (x) for the loss function using Cholesky
-        decomposition.
+        Computes the loss function using Cholesky decomposition.
 
         Parameters
         ----------
@@ -259,38 +214,20 @@ class CholeskyMatrixDecomposition(MatrixDecompositionBase):
         Returns
         -------
         res : torch.Tensor
-            The result of (x^T) * Sigma * (x).
+            The result of -0.5 * log(2 * pi) + ln(det(Sigma)) - (0.5 * (x^T) * Sigma * (x)).
         """
-        # Do shape sanity check: residual.size[1:] == (nmodes, ndim, 1)
-        if tuple(residual.size()[1:]) != (self._nmodes, self._ndim, 1):
-            residual = residual.view(-1, self._nmodes, self._ndim, 1)
+        # Compute the sum of log(diag_u). This is equivalent to Tr(log(U)).
+        diag_u = matrix_free_params.index_select(2, self._u_diag_indices)
+        ln_det_sigma = torch.log(diag_u).sum(dim=2, keepdim=True)
 
-        if residual.shape[0] != matrix_free_params.shape[0]:
-            raise RuntimeError(
-                f"The residual batch size ({residual.shape[0]}) != the free params batch size ({matrix_free_params.shape[0]})."
-            )
-
-        # Create U matrix of dim -> [batch, nmodes, ndim, ndim]
+        # Compute x^T * U^T * U * x.
         u_mat = torch_mdn.utils.to_triangular_matrix(
             ndim=self._ndim, params=matrix_free_params, is_lower=False
         )
+        residual = residual.view(-1, 1, self._ndim, 1)
+        quad_sigma = torch_mdn.utils.compute_quad_sigma(u_mat=u_mat, v=residual)
 
-        # Compatible sanity check before computing norm.
-        if u_mat.size()[:2] != residual.size()[:2]:
-            raise ValueError(
-                f"u_mat.shape[:2] {tuple(residual.size()[:2])} != residual.shape[:2] {tuple(residual.size()[:2])}."
-            )
-        if u_mat.size()[-1] != self._ndim:
-            raise ValueError(
-                f"u_mat.shape[-1] should be {self._ndim}, but got {int(u_mat.size()[-1])}."
-            )
-
-        # Compute ||U * (x - mu)||^2_2
-        ur = torch.matmul(u_mat, residual)
-        ur = torch.square(ur)
-        ur = ur.sum(dim=2, keepdim=False)
-
-        return ur
+        return (-0.5 * self._ndim * math.log(2.0 * math.pi)) + ln_det_sigma - (0.5 * quad_sigma)
 
     def decomposition_product(self, matrix_free_params: torch.Tensor) -> torch.Tensor:
         """

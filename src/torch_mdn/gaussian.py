@@ -125,21 +125,7 @@ class _GaussianMatrixOperations(IntraLayerOperationBase):
         loss : torch.Tensor
             The loss term.
         """
-        # Compute the natural log of the determinant: ln(det(Sigma)^-1/2).
-        ln_det_sigma = self._decomposition.compute_ln_det_sigma(
-            matrix_free_params=free_params
-        )
-
-        # Compute the quadratic: x^T * Sigma * x.
-        # quad_sigma = self._decomposition.compute_quad_sigma(
-        #     residual=target.view((-1, 1, self.ndim, 1)), matrix_free_params=free_params
-        # )
-        quad_sigma = self._decomposition.compute_quad_sigma(
-            residual=target, matrix_free_params=free_params
-        )
-
-        # Sum the terms.
-        loss_term = -self._half_log_twopi + ln_det_sigma - (0.5 * quad_sigma)
+        loss_term = self._decomposition.compute_loss(residual=target, matrix_free_params=free_params)
         return loss_term
 
     def compute_predict_operations(self, free_params: torch.Tensor) -> torch.Tensor:

@@ -12,6 +12,39 @@ import torch
 from torch import Tensor
 
 
+@validate_arguments(config={"arbitrary_types_allowed": True})
+def compute_quad_sigma(u_mat: Tensor, v: Tensor) -> Tensor:
+    """
+    Computes the quadratic (v^T) * (U^T * U) * (v) for the loss function, where U is an upper
+    triangular matrix.
+
+    Parameters
+    ----------
+    u_mat : torch.Tensor
+        An upper triangular matrix.
+
+    v : torch.Tensor
+        A residual/error vector.
+
+    Returns
+    -------
+    res : Tensor
+        The result of (x^T) * Sigma * (x) using an upper triangular matrix.
+    """
+    # Sanity checks for upper triangular matrix.
+    if u_mat.shape[:-1] != v.shape[:-1]:
+        raise RuntimeError(f"u_mat.shape[:-1] ({u_mat.shape[:-1]}) != v.shape[:-1] ({v.shape[:-1]})")
+    
+    if u_mat.shape[-2] != u_mat.shape[-1]:
+        raise RuntimeError(f"The last two dimensions are not the same: {u_mat.shape[-2:]}")
+
+    # Compute ||U * v||^2_2, where v = (x - mu).
+    ur = torch.matmul(u_mat, v)
+    ur = torch.square(ur)
+    ur = ur.sum(dim=2, keepdim=False)
+    return ur
+
+
 @validate_arguments
 def create_torch_indices(indices: List[int]) -> Tensor:
     """
@@ -194,4 +227,4 @@ def torch_matmul_4d(tensor1: Tensor, tensor2: Tensor) -> Tensor:
         raise ValueError(
             f"a.size()[2:] ({tensor1.size()[2:]}) != b.size()[2:] ({tensor2.size()[2:]})."
         )
-    return torch.einsum("abcd, abde -> abce", tensor1, tensor2)
+    return torch.einsum("abcd, abde -> abce", tensor1, tensor2) # type: ignore
