@@ -1,27 +1,16 @@
-from collections import OrderedDict
 from enum import Enum
 import math
-from typing import OrderedDict, Tuple
+from typing import Literal, Union
 
 from pydantic import validate_arguments, PositiveInt
 import torch
-from torch_mdn.ilayer import ILayerComponent, ICompositeLayer
-import torch_mdn.utils as utils
-from torch import Tensor
-import torch.nn.functional as F
-
-
-class MatrixDecompositionType(Enum):
-    """Enum for specifying the types of decomposed Gaussian covariance matrices."""
-
-    diagonal = "Diagonal Decomposition"
-    """Decomposition of a diagonal covariance matrix."""
-
-    full_LDL = "Full Matrix LDL Decomposition"
-    """LDL decomposition of a full covariance matrix."""
-
-    full_UU = "Full Matrix Cholesky UU Decomposition"
-    """UU decomposition of a full covariance matrix."""
+from torch_mdn.decompose import (
+    MatrixDecompositionBase,
+    MatrixDecompositionType,
+    CholeskyMatrixDecomposition,
+)
+from torch_mdn.layer_ops_base import IntraLayerOperationBase
+from torch_mdn.mdn import MixtureLayerBase
 
 
 class MatrixPredictionType(Enum):
@@ -34,519 +23,372 @@ class MatrixPredictionType(Enum):
     """Output the covariance matrix."""
 
 
-class _IGaussianLayerComponent(ILayerComponent):
-    """A base class that provides methods for implementing individual Gaussian Mixture components
-    (that is, the covariance, mixture coefficients, and mean).
-    """
+class _GaussianMatrixOperations(IntraLayerOperationBase):
+    """A class for implementing operations for a Gaussian matrix."""
 
-    @validate_arguments
-    def __init__(self, ndim: PositiveInt, nmodes: PositiveInt) -> None:
-        """
-        Parameters
-        ----------
-        ndim : PositiveInt
-            The number of dimensions for the Gaussian.
-
-        nmodes : PositiveInt
-            The number of modes. Only useful for mixture models.
-        """
-        super().__init__()
-
-        self._ndim = ndim
-        self._nmodes = nmodes
-
-    def extra_repr(self) -> str:
-        """
-        Returns detailed information about the Gaussian layer.
-
-        Returns
-        -------
-        details : str
-            Detailed information about the Gaussian layer.
-        """
-        return f"nmodes={self._nmodes}, ndims={self._ndim}"
-
-    @property
-    def ndim(self) -> int:
-        """
-        Returns the number of dimensions in the Gaussian distribution.
-
-        Returns
-        -------
-        ndim : int
-            The number of dimensions in the Gaussian distribution.
-        """
-        return self._ndim
-
-    @property
-    def nmodes(self) -> int:
-        """
-        Returns the number of modes in a mixture distribution.
-
-        Returns
-        -------
-        nmodes : int
-            The number of modes in a mixture distribution.
-        """
-        return self._nmodes
-
-
-class _GaussianMatrixComponent(_IGaussianLayerComponent):
-    """A class that implements the Gaussian matrix."""
-
-    @validate_arguments
     def __init__(
         self,
-        matrix_decomp_type: MatrixDecompositionType,
-        predict_matrix_type: MatrixPredictionType,
         ndim: PositiveInt,
         nmodes: PositiveInt,
+        prediction_type: MatrixPredictionType,
+        decomposition_impl_or_type: Union[
+            MatrixDecompositionBase, MatrixDecompositionType
+        ],
     ) -> None:
         """
         Parameters
         ----------
-        matrix_decomp_type : MatrixDecompositionType (enum)
-            The covariance/precision matrix decomposition type.
-
-        predict_matrix_type : MatrixPredictionType (enum)
-            The prediction matrix type.
-
         ndim : PositiveInt
             The number of dimensions for the Gaussian.
 
         nmodes : PositiveInt
-            The number of modes. Only useful for mixture models.
+            The number of modes in the mixture. Only useful in mixture modeling.
+
+        prediction_type : MatrixPredictionType (enum)
+            The prediction type for the matrix.
+
+        decomposition_impl_or_type : Union[MatrixDecompositionBase, MatrixDecompositionType]
+            A MatrixDecompositionType or a subclass of MatrixDecompositionBase.
         """
-        super().__init__(ndim=ndim, nmodes=nmodes)
-
-        # Determine the matrix decomposition type.
-        self._matrix_decomp_type = matrix_decomp_type
-        if self._matrix_decomp_type == MatrixDecompositionType.full_UU:
-            num_mat_params = utils.num_tri_matrix_params_per_mode(self.ndim, False)
-            self._cpm_dist_shape = (self.nmodes, num_mat_params)
-        else:
-            raise NotImplementedError(
-                f"The matrix decomposition type {self._matrix_decomp_type.name} is not implemented."
-            )
-
-        # Determine the matrix prediction/inference type.
-        self._predict_matrix_type = predict_matrix_type
-
-    @validate_arguments(config={"arbitrary_types_allowed": True})
-    def apply_activation(self, x: Tensor) -> Tensor:
-        """
-        Returns the input free parameters after an activation function has been applied.
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            The reshaped, sub-tensor output from the neural network that corresponds to the
-            covariance of the Gaussian.
-
-        Returns
-        -------
-        res : torch.Tensor
-            The free parameters after an activation function has been applied.
-        """
-        if self._matrix_decomp_type == MatrixDecompositionType.full_UU:
-            diag_indices = utils.diag_indices_tri(ndim=self.ndim, is_lower=False)
-            x[:, :, diag_indices] = (
-                F.elu(x[:, :, diag_indices], alpha=1.0) + 1.0 + utils.epsilon()
+        # Check if the decomposition variable is a MatrixDecompositionType enum.
+        if isinstance(decomposition_impl_or_type, MatrixDecompositionType):
+            self._decomposition = self._get_decompose_method(
+                decomposition_type=decomposition_impl_or_type, ndim=ndim, nmodes=nmodes
             )
         else:
-            raise NotImplementedError(
-                f"Matrix decomposition type {self._matrix_decomp_type.name} is not implemented."
-            )
+            self._decomposition = decomposition_impl_or_type
 
-        return x
-
-    @validate_arguments
-    def expected_input_shape(self, batch_size: PositiveInt = 1) -> Tuple[int, int]:
-        """
-        Computes the expected input shape of the free parameters used to build the
-        covariance/precision matrix (or matrices). This function can be used to compute the number
-        of output features from the previous linear layer as `math.prod(cpm_input_shape)` when
-        `batch_size = 1`.
-
-        Parameters
-        ----------
-        batch_size : PositiveInt
-            The expected batch size of the input to the forward method. This argument is optional
-            and is mainly useful for debugging.
-
-        Result
-        ------
-        res : Tuple[int, int]
-            The expected input shape to this layer.
-        """
-        return (batch_size, math.prod(self._cpm_dist_shape))
-
-    @validate_arguments(config={"arbitrary_types_allowed": True})
-    def predict(self, x: Tensor) -> Tensor:
-        """
-        Performs inference given the input tensor.
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            The linear output from the neuraln network.
-
-        Returns
-        -------
-        res : torch.Tensor
-            The predicted matrix given the input tensor.
-        """
-        x = self.forward(x)
-
-        # Check the output format of the matrix.
-        if self._predict_matrix_type in [
-            MatrixPredictionType.covariance,
-            MatrixPredictionType.precision,
-        ]:
-            x = utils.to_triangular_matrix(self.ndim, x, False)
-            x = utils.torch_matmul_4d(x.transpose(-2, -1), x)
-
-            if self._predict_matrix_type == MatrixPredictionType.covariance:
-                x = torch.inverse(x)
-
-        else:
-            raise NotImplementedError(
-                f"The prediction type {self._predict_matrix_type.name} is not supported."
-            )
-
-        return x
-
-    @validate_arguments(config={"arbitrary_types_allowed": True})
-    def reshape_input(self, x: Tensor) -> Tensor:
-        """
-        Reshapes the input tensor for downstream operations.
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            The sub-tensor output from the neural network that corresponds to the free parameters
-            of the covariance matrix.
-
-        Returns
-        -------
-        res : torch.Tensor
-            The reshaped tensor with shape depending on the covariance decomposition.
-        """
-        return x.reshape((-1,) + self._cpm_dist_shape)
-
-    def extra_repr(self) -> str:
-        """
-        Returns detailed information about the Gaussian covariance layer.
-
-        Returns
-        -------
-        details : str
-            Detailed information about the Gaussian covariance layer.
-        """
-        return (
-            f"{super().extra_repr()}, "
-            + f"matrix_decomposition={self._matrix_decomp_type.name}, "
-            + f"predicted_matrix_type={self._predict_matrix_type.name}"
+        # Call init for super.
+        super().__init__(
+            free_params_shape=self._decomposition.expected_decomposed_shape,
+            predicted_vars_shape=(ndim, ndim) if nmodes == 1 else (nmodes, ndim, ndim),
         )
 
+        # Set other variables.
+        self._prediction_type = prediction_type
+        self._half_log_twopi = (
+            self._decomposition.ndim * 0.5 * torch.log(torch.tensor(2 * math.pi))
+        )
 
-class _GaussianMeanComponent(_IGaussianLayerComponent):
+    def _compute_free_params_activation(
+        self, free_params: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Uses the decomposition method to apply an activation function to the (reshaped) free
+        parameters.
+
+        Parameters
+        ----------
+        free_params : torch.Tensor
+            An appropriately shaped tensor that corresponds to the free parameters of a Gaussian
+            (precision or covariance) matrix.
+
+        Returns
+        -------
+        res : torch.Tensor
+            The matrix free parameters after an activation function has been applied.
+        """
+        return self._decomposition.apply_activation(free_params)
+
+    def _get_decompose_method(
+        self,
+        decomposition_type: MatrixDecompositionType,
+        ndim: PositiveInt,
+        nmodes: PositiveInt,
+    ) -> MatrixDecompositionBase:
+        # Get the implementation for the matrix decomposition.
+        decomposition_impl = None
+        if decomposition_type == MatrixDecompositionType.cholesky:
+            decomposition_impl = CholeskyMatrixDecomposition(ndim=ndim, nmodes=nmodes)
+        else:
+            raise NotImplementedError(
+                f"Received a matrix decomposition type named {decomposition_type.name}, but it is unhandled."
+            )
+        return decomposition_impl
+
+    def compute_loss_term_operations(
+        self, target: torch.Tensor, free_params: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Computes the loss term before applying a reduction function (e.g., torch.mean(...)).
+
+        Parameters
+        ----------
+        target : torch.Tensor
+            The residual or error.
+
+        free_params : torch.Tensor
+            The appropriately shaped free parameters for the matrix after a forward pass.
+
+        Returns
+        -------
+        loss : torch.Tensor
+            The loss term.
+        """
+        loss_term = self._decomposition.compute_loss(residual=target, matrix_free_params=free_params)
+        return loss_term
+
+    def compute_predict_operations(self, free_params: torch.Tensor) -> torch.Tensor:
+        """
+        Computes a prediction given the free parameters to produce a precision or covariance matrix.
+
+        Parameters
+        ----------
+        free_params : torch.Tensor
+            The free parameters that correspond to the Gaussian matrix.
+
+        Returns
+        -------
+        result : torch.Tensor
+            The predicted precision or covariance matrix.
+        """
+        # Perform a forward pass on the input.
+        free_params = self.compute_forward_operations(free_params=free_params)
+
+        # Use the decomposition method to produce the precision matrix.
+        precision_mat = self._decomposition.decomposition_product(
+            matrix_free_params=free_params
+        )
+
+        # Determine what to return.
+        result = None
+        if self._prediction_type == MatrixPredictionType.precision:
+            result = precision_mat
+
+        elif self._prediction_type == MatrixPredictionType.covariance:
+            result = torch.inverse(precision_mat)
+
+        else:  # Ensure we raise an exception if we forgot to handle a prediction case.
+            raise RuntimeError(
+                f"Unhandled matrix prediction type: {self._prediction_type.name}."
+            )
+
+        # Reshape the output tensor.
+        result = self._reshape_predicted_vars(result)
+        return result
+
+
+class _GaussianMeanOperations(IntraLayerOperationBase):
     """A class for implementing operations for a Gaussian mean."""
 
-    @validate_arguments
-    def __init__(self, ndim: PositiveInt, nmodes: PositiveInt) -> None:
-        """
-        Parameters
-        ----------
-        ndim : PositiveInt
-            The number of dimensions for the Gaussian.
+    def __init__(
+        self,
+        ndim: PositiveInt,
+        nmodes: PositiveInt,
+    ) -> None:
+        super().__init__(
+            free_params_shape=(nmodes, ndim),
+            predicted_vars_shape=(ndim, 1) if nmodes == 1 else (nmodes, ndim, 1),
+        )
 
-        nmodes : PositiveInt
-            The number of modes. Only useful for mixture models.
+    def _compute_free_params_activation(
+        self, free_params: torch.Tensor
+    ) -> torch.Tensor:
         """
-        super().__init__(ndim=ndim, nmodes=nmodes)
-        self._mu_dist_shape = (self.nmodes, self.ndim)
-
-    @validate_arguments(config={"arbitrary_types_allowed": True})
-    def apply_activation(self, x: Tensor) -> Tensor:
-        """
-        Returns the input tensor.
+        Returns the input tensor as is.
 
         Parameters
         ----------
-        x : torch.Tensor
-            The reshaped, sub-tensor output from the neural network that corresponds to the mean
-            of a Gaussian.
+        free_params : torch.Tensor
+            An appropriately shaped tensor that corresponds to the free parameters of a Gaussian
+            mean.
 
         Returns
         -------
         res : torch.Tensor
             The unaltered input to the method.
         """
-        return x
+        return free_params
 
-    @validate_arguments
-    def expected_input_shape(self, batch_size: PositiveInt = 1) -> Tuple[int, int]:
+    def compute_loss_term_operations(
+        self, target: torch.Tensor, free_params: torch.Tensor
+    ) -> torch.Tensor:
         """
-        Computes the expected input shape of the free parameters used to build the mean. This
-        function can be used to compute the number of output features from the previous linear
-        layer as `math.prod(mu_input_shape)` when `batch_size = 1`.
+        Computes the loss term before applying a reduction function (e.g., torch.mean(...)).
 
         Parameters
         ----------
-        batch_size : PositiveInt
-            The expected batch size of the input to the forward method. This argument is optional
-            and is mainly useful for debugging.
+        target : torch.Tensor
+            The residual or error.
+
+        free_params : torch.Tensor
+            The appropriately shaped free parameters for the matrix after a forward pass.
 
         Returns
         -------
-        res : Tuple[int, int]
-            The expected input shape to this layer.
+        loss : torch.Tensor
+            The loss term.
         """
-        return (batch_size, math.prod(self._mu_dist_shape))
+        return torch.tensor(0.0)
+
+    def compute_predict_operations(self, free_params: torch.Tensor) -> torch.Tensor:
+        """
+        Computes a prediction given the free parameters to produce the mean.
+
+        Parameters
+        ----------
+        free_params : torch.Tensor
+            The free parameters that correspond to the Gaussian mean.
+
+        Returns
+        -------
+        result : torch.Tensor
+            The predicted mean.
+        """
+        result = self.compute_forward_operations(free_params=free_params)
+
+        # Reshape the output tensor.
+        result = self._reshape_predicted_vars(result)
+        return result
+
+
+class GaussianMatrixLayer(MixtureLayerBase):
+    """A class that implements the Gaussian matrix layer."""
 
     @validate_arguments(config={"arbitrary_types_allowed": True})
-    def reshape_input(self, x: Tensor) -> Tensor:
-        """
-        Reshapes the input tensor for downstream operations.
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            The sub-tensor output from the neural network that corresponds to the mean of a
-            Gaussian.
-
-        Returns
-        -------
-        res : torch.Tensor
-            The reshaped tensor with shape (batch_size, nmodes, ndim).
-        """
-        return x.reshape((-1,) + self._mu_dist_shape)
-
-    def extra_repr(self) -> str:
-        """
-        Not Implemented.
-        """
-        raise NotImplementedError("The extra_repr() function was not implemented.")
-
-
-class _GaussianMixCoeffComponent(_IGaussianLayerComponent):
-    """A class for implementing operations for Gaussian mixture coefficients.
-
-    WARNING: This class should never be used standalone.
-    """
-
-    @validate_arguments
-    def __init__(self, ndim: PositiveInt, nmodes: PositiveInt) -> None:
-        """
-        Parameters
-        ----------
-        ndim : PositiveInt
-            The number of dimensions for the Gaussian.
-
-        nmodes : PositiveInt
-            The number of modes. Only useful for mixture models.
-        """
-        super().__init__(ndim=ndim, nmodes=nmodes)
-        self._mix_dist_shape = (self.nmodes, 1)
-
-    @validate_arguments(config={"arbitrary_types_allowed": True})
-    def apply_activation(self, x: Tensor) -> Tensor:
-        """
-        Returns the mixture weights derived from the input tensor.
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            The reshaped, sub-tensor output from the neural network that corresponds to the
-            mixture weights of a Gaussian Mixture model.
-
-        Returns
-        -------
-        res : torch.Tensor
-            The mixture weights.
-        """
-        max_x = torch.max(x, dim=1, keepdim=True).values  # type: ignore
-        x = x - max_x  # type: ignore
-        x = F.softmax(x, dim=1)  # type: ignore
-        return x
-
-    @validate_arguments
-    def expected_input_shape(self, batch_size: PositiveInt = 1) -> Tuple[int, int]:
-        """
-        Computes the expected input shape of the free parameters used to build the mixture
-        weights. This function can be used to compute the number of output features from the
-        previous linear layer as `math.prod(mix_input_shape)` when `batch_size = 1`.
-
-        Parameters
-        ----------
-        batch_size : PositiveInt
-            The expected batch size of the input to the forward method. This argument is optional
-            and is mainly useful for debugging.
-
-        Returns
-        -------
-        res : Tuple[int, ...]
-            The expected input shape to this layer.
-        """
-        return (batch_size, math.prod(self._mix_dist_shape))
-
-    @validate_arguments(config={"arbitrary_types_allowed": True})
-    def reshape_input(self, x: Tensor) -> Tensor:
-        """
-        Reshapes the input tensor for downstream operations.
-
-        Parameters
-        ----------
-        x : torch.Tensor
-            The sub-tensor output from the neural network that corresponds to the mixture weights
-            of a Gaussian Mixture model.
-
-        Returns
-        -------
-        res : torch.Tensor
-            The reshaped tensor with shape (batch_size, nmodes, 1).
-        """
-        return x.reshape((-1,) + self._mix_dist_shape)
-
-    def extra_repr(self) -> str:
-        """
-        Not Implemented.
-        """
-        raise NotImplementedError("The extra_repr() function was not implemented.")
-
-
-class GaussianMatrixLayer(_GaussianMatrixComponent):
-    """A class that implements the Gaussian covariance/precision matrix layer."""
-
-    @validate_arguments
     def __init__(
         self,
-        matrix_decomp_type: MatrixDecompositionType,
-        predict_matrix_type: MatrixPredictionType,
         ndim: PositiveInt,
+        prediction_type: Literal[
+            MatrixPredictionType.precision, MatrixPredictionType.covariance
+        ],
+        decomposition_impl_or_type: Union[
+            MatrixDecompositionBase, MatrixDecompositionType
+        ],
     ) -> None:
         """
         Parameters
         ----------
-        matrix_decomp_type : MatrixDecompositionType (enum)
-            The covariance/precision matrix decomposition type.
-
-        predict_matrix_type : MatrixPredictionType (enum)
-            The prediction matrix type.
-
-        ndim : PositiveInt
-            The number of dimensions for the Gaussian.
-        """
-        super().__init__(
-            matrix_decomp_type=matrix_decomp_type,
-            predict_matrix_type=predict_matrix_type,
-            ndim=ndim,
-            nmodes=1,
-        )
-
-
-class GaussianLayer(ICompositeLayer):
-    """A class that implements the Gaussian (mean and covariance) layer."""
-
-    @validate_arguments
-    def __init__(
-        self,
-        matrix_decomp_type: MatrixDecompositionType,
-        predict_matrix_type: MatrixPredictionType,
-        ndim: PositiveInt,
-    ) -> None:
-        """
-        Parameters
-        ----------
-        matrix_decomp_type : MatrixDecompositionType (enum)
-            The covariance/precision matrix decomposition type.
-
-        predict_matrix_type : MatrixPredictionType (enum)
-            The prediction matrix type.
-
-        ndim : PositiveInt
-            The number of dimensions for the Gaussian.
-        """
-        # Create the mu and sigma layers.
-        nmodes: int = 1
-        mu_layer = _GaussianMeanComponent(ndim=ndim, nmodes=nmodes)
-        sigma_layer = _GaussianMatrixComponent(
-            matrix_decomp_type=matrix_decomp_type,
-            predict_matrix_type=predict_matrix_type,
-            ndim=ndim,
-            nmodes=nmodes,
-        )
-
-        super().__init__(
-            components=OrderedDict([("mu", mu_layer), ("sigma", sigma_layer)])
-        )
-
-    def extra_repr(self) -> str:
-        """
-        Returns detailed information about the Gaussian layer.
-
-        Returns
-        -------
-        details : str
-            Detailed information about the Gaussian layer.
-        """
-        return self._components["sigma"].extra_repr()
-
-
-class GaussianMixtureLayer(ICompositeLayer):
-    """A class that implements the Gaussian mixture layer."""
-
-    @validate_arguments
-    def __init__(
-        self,
-        matrix_decomp_type: MatrixDecompositionType,
-        predict_matrix_type: MatrixPredictionType,
-        ndim: PositiveInt,
-        nmodes: PositiveInt = 2,
-    ) -> None:
-        """
-        Parameters
-        ----------
-        matrix_decomp_type : MatrixDecompositionType (enum)
-            The covariance/precision matrix decomposition type.
-
-        predict_matrix_type : MatrixPredictionType (enum)
-            The prediction matrix type.
-
         ndim : PositiveInt
             The number of dimensions for the Gaussian.
 
-        nmodes : PositiveInt
-            The number of modes. Only useful for mixture models.
+        prediction_type : MatrixPredictionType (enum)
+            The prediction type for the matrix.
+
+        decomposition_type : Union[MatrixDecompositionBase, MatrixDecompositionType]
+            A subclass of MatrixDecompositionBase or a MatrixDecompositionType.
         """
-        # Sanity check.
-        if nmodes < 2:
-            raise ValueError(f"nmodes must be at least 2, but got {nmodes}.")
-
-        # Create the mixture coefficient, mu, and sigma layers.
-        mix_layer = _GaussianMixCoeffComponent(ndim=ndim, nmodes=nmodes)
-        mu_layer = _GaussianMeanComponent(ndim=ndim, nmodes=nmodes)
-        sigma_layer = _GaussianMatrixComponent(
-            matrix_decomp_type=matrix_decomp_type,
-            predict_matrix_type=predict_matrix_type,
-            ndim=ndim,
-            nmodes=nmodes,
-        )
-
         super().__init__(
-            components=OrderedDict(
-                [("mix", mix_layer), ("mu", mu_layer), ("sigma", sigma_layer)]
+            layer_operations=list(
+                [
+                    _GaussianMatrixOperations(
+                        ndim=ndim,
+                        nmodes=1,
+                        prediction_type=prediction_type,
+                        decomposition_impl_or_type=decomposition_impl_or_type,
+                    )
+                ]
             )
         )
 
-    def extra_repr(self) -> str:
+    @validate_arguments(config={"arbitrary_types_allowed": True})
+    def loss(self, target: torch.Tensor, free_params: torch.Tensor) -> torch.Tensor:
         """
-        Returns detailed information about the Gaussian mixture layer.
+        Computes the loss for a Gaussian matrix given its free parameters and the target.
+
+        Parameters
+        ----------
+        target : torch.Tensor
+            The target tensor.
+
+        free_params : torch.Tensor
+            The free parameters for the matrix after a forward pass.
 
         Returns
         -------
-        details : str
-            Detailed information about the Gaussian mixture layer.
+        result : Tensor
+            The result of computing the loss, including applying a reduction function
+            (e.g., torch.mean).
+
         """
-        return self._components["sigma"].extra_repr()
+        # Compute the matrix parameters using a forward pass.
+        matrix_params = self.forward(free_params=free_params)
+        assert isinstance(matrix_params, torch.Tensor)
+
+        # Compute the loss terms for matrix.
+        batch_size, _, _ = matrix_params.shape
+        loss_terms = self._layer_operations[0].compute_loss_term_operations(
+            target=target.view(batch_size, -1, 1), free_params=matrix_params
+        )
+
+        # Apply reduction.
+        return -1.0 * torch.mean(loss_terms)
+
+
+class GaussianLayer(MixtureLayerBase):
+    """A class that implements the Gaussian (mean and covariance) layer."""
+
+    @validate_arguments(config={"arbitrary_types_allowed": True})
+    def __init__(
+        self,
+        ndim: PositiveInt,
+        prediction_type: Literal[
+            MatrixPredictionType.precision, MatrixPredictionType.covariance
+        ],
+        decomposition_impl_or_type: Union[
+            MatrixDecompositionBase, MatrixDecompositionType
+        ],
+    ) -> None:
+        """
+        Parameters
+        ----------
+        ndim : PositiveInt
+            The number of dimensions for the Gaussian.
+
+        prediction_type : MatrixPredictionType (enum)
+            The prediction type for the matrix.
+
+        decomposition_type : Union[MatrixDecompositionBase, MatrixDecompositionType]
+            A subclass of MatrixDecompositionBase or a MatrixDecompositionType.
+        """
+        # Create the mu and sigma layers.
+        nmodes: int = 1
+        super().__init__(
+            layer_operations=list(
+                [
+                    _GaussianMeanOperations(ndim=ndim, nmodes=nmodes),
+                    _GaussianMatrixOperations(
+                        ndim=ndim,
+                        nmodes=nmodes,
+                        prediction_type=prediction_type,
+                        decomposition_impl_or_type=decomposition_impl_or_type,
+                    ),
+                ]
+            )
+        )
+
+    @validate_arguments(config={"arbitrary_types_allowed": True})
+    def loss(self, target: torch.Tensor, free_params: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the loss for a Gaussian mean and matrix given its free parameters and the target.
+
+        Parameters
+        ----------
+        target : torch.Tensor
+            The target tensor.
+
+        free_params : torch.Tensor
+            The free parameters for the matrix after a forward pass.
+
+        Returns
+        -------
+        result : Tensor
+            The result of computing the loss, including applying a reduction function
+            (e.g., torch.mean).
+
+        """
+        # Compute the matrix parameters using a forward pass.
+        mu_params, matrix_params = self.forward(free_params=free_params)
+
+        # Compute the residual.
+        batch_size, _, ndim = mu_params.shape
+        data_shape = (batch_size, ndim, 1)
+        residual = target.view(data_shape) - mu_params.view(data_shape)
+
+        # Compute the loss terms for matrix.
+        loss_terms = self._layer_operations[1].compute_loss_term_operations(
+            target=residual, free_params=matrix_params
+        )
+
+        # Apply reduction.
+        return -1.0 * torch.mean(loss_terms)
